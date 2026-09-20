@@ -141,14 +141,6 @@ function number(value, locale, digits = 2) {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(value)
 }
 
-export function formatFileSize(value, locale) {
-  if (typeof value === 'string') value = /^\d+$/.test(value.trim()) ? Number(value) : NaN
-  if (!Number.isSafeInteger(value) || value < 0) return ''
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
-  const unit = value ? Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1) : 0
-  return `${number(value / 1024 ** unit, locale)} ${units[unit]}`
-}
-
 export function formatDuration(value, locale) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return ''
   if (value > Number.MAX_SAFE_INTEGER / 100) return `${number(value, locale)} s`
@@ -161,26 +153,6 @@ export function formatDuration(value, locale) {
     minutes ? `${minutes} min` : '',
     seconds || (!hours && !minutes) ? `${number(seconds, locale)} s` : ''
   ].filter(Boolean).join(' ')
-}
-
-export function fileFacts(resource, { locale, timeZone } = {}) {
-  const rows = []
-  const add = (key, label, value, extra = {}) => {
-    if (value) rows.push({ key, label, value, ...extra })
-  }
-  add('name', 'Name', text(resource?.name))
-  add('size', 'File size', formatFileSize(resource?.size, locale))
-  const extension = text(resource?.extension).replace(/^\./, '')
-  add('type', 'Type', text(resource?.mimeType) || (extension ? `${extension.toUpperCase()} file` : ''))
-  if (text(resource?.mdate)) {
-    const modified = new Date(resource.mdate)
-    if (!Number.isNaN(modified.getTime())) {
-      add('modified', 'Modified', new Intl.DateTimeFormat(locale, {
-        dateStyle: 'medium', timeStyle: 'short', timeZone
-      }).format(modified), { dateTime: modified.toISOString() })
-    }
-  }
-  return rows
 }
 
 export function sourceFacts(metadata, { locale } = {}) {

@@ -12,25 +12,26 @@ export const previewExtensions = [
 export const officeExtensions = ['doc', 'docx', 'odt', 'rtf', 'ppt', 'pptx', 'odp', 'xls', 'xlsx', 'ods']
 export const fallbackExtensions = [...officeExtensions, 'epub']
 
+// Native supported MIME types retain playback. Other media files can still
+// appear in the gallery as a server-rendered frame or embedded cover artwork.
+export const mediaFallbackExtensions = [
+  'mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'mpg', 'mpeg', 'mts', 'm2ts',
+  '3gp', 'flv', 'wmv', 'hevc', 'h265',
+  'mp3', 'flac', 'ogg', 'm4a', 'opus', 'wav', 'aiff'
+]
+
 export function extensionOf(resource) {
   return (resource?.extension || resource?.name?.split('.').pop() || '').toLowerCase()
 }
 
-export function previewDescription(resource) {
-  const extension = extensionOf(resource)
-  if (extension === 'ai') return 'First artboard from the PDF-compatible artwork'
-  if (['psd', 'psb'].includes(extension)) return 'Saved composite image; layers are flattened'
-  if (['ttf', 'otf', 'ttc', 'otc', 'woff', 'woff2'].includes(extension)) return 'Font specimen; first face in collections'
-  if (['epub', 'cbz', 'cbr'].includes(extension)) return 'Cover or first page'
-  if (officeExtensions.includes(extension)) return 'First page or slide'
-  if (['kra', 'ora', 'sketch'].includes(extension)) return 'Embedded document preview'
-  return 'Rendered image preview'
-}
-
 export function unavailableReason(resource) {
   if (resource?.isInVault) return 'Encrypted files cannot be rendered on the server.'
-  if (!resource?.canDownload?.()) return 'You do not have permission to preview this file.'
-  return ''
+  try {
+    if (resource?.canDownload?.()) return ''
+  } catch {
+    // An incomplete host permission context must not start a preview request.
+  }
+  return 'You do not have permission to preview this file.'
 }
 
 export function conversionHint(resource) {

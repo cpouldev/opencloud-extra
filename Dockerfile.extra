@@ -48,13 +48,31 @@ ENV THUMBNAILS_EXTRA_RENDERER=/usr/local/bin/opencloud-extra-thumbnail \
     SAL_USE_VCLPLUGIN=svp \
     PYTHONDONTWRITEBYTECODE=1
 
-FROM quay.io/opencloudeu/nodejs-ci:24 AS extra-web
+FROM quay.io/opencloudeu/nodejs-ci:24 AS extra-web-tests
 
 WORKDIR /extra-web
 COPY extras/web-preview/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY extras/web-preview/ ./
-RUN npm test && npm run build
+RUN npm test
+
+FROM quay.io/opencloudeu/nodejs-ci:24 AS native-web
+
+WORKDIR /opencloud
+COPY extras/web-gallery/source.json extras/web-gallery/apply.mjs extras/web-gallery/build.mjs extras/web-gallery/build.test.mjs ./extras/web-gallery/
+COPY services/web/Makefile ./services/web/Makefile
+RUN node --test extras/web-gallery/build.test.mjs && \
+    node extras/web-gallery/build.mjs fetch /web && \
+    npm install --prefix /opt/web-build --no-audit --no-fund \
+      "$(node -p 'require("./extras/web-gallery/source.json").packageManager')"
+ENV PATH=/opt/web-build/node_modules/.bin:$PATH \
+    OPENCLOUD_EXTRA_PNPM_STORE=/pnpm/store
+RUN --mount=type=cache,target=/pnpm/store \
+    node extras/web-gallery/build.mjs install /web
+COPY extras/web-gallery/native-gallery.patch ./extras/web-gallery/native-gallery.patch
+# This dependency also gates the native build on the integration module tests.
+COPY --from=extra-web-tests /extra-web/src ./extras/web-preview/src
+RUN node extras/web-gallery/build.mjs build /web
 
 FROM quay.io/opencloudeu/nodejs-ci:24 AS generate
 
@@ -66,9 +84,11 @@ RUN git -c init.defaultBranch=build init && \
     git add -f services/web/assets && \
     make node-generate-prod
 
-# Embed the app after the upstream asset download (which cleans the asset tree).
-# Built-in apps remain available when an existing data volume is mounted.
-COPY --from=extra-web /extra-web/dist /opencloud/services/web/assets/apps/extra-preview
+# Replace the complete generated core after upstream/IDP asset generation. The
+# native gallery shares hashed chunks and CSS with the rest of the Web runtime.
+RUN rm -rf /opencloud/services/web/assets/core && \
+    mkdir -p /opencloud/services/web/assets/core
+COPY --from=native-web /web/dist /opencloud/services/web/assets/core
 
 FROM quay.io/opencloudeu/golang-ci:1.25 AS build
 
@@ -110,6 +130,8 @@ LABEL org.opencontainers.image.title="OpenCloud Extra" \
 
 COPY --from=build /dist/binaries/opencloud-linux-${TARGETARCH} /usr/bin/opencloud
 COPY LICENSE /usr/share/licenses/opencloud-extra/LICENSE
+COPY --from=native-web /web/LICENSE /usr/share/licenses/opencloud-extra/web/LICENSE
+COPY --from=native-web /web/third-party-licenses /usr/share/licenses/opencloud-extra/web/third-party-licenses
 
 VOLUME ["/var/lib/opencloud", "/etc/opencloud"]
 EXPOSE 9200/tcp

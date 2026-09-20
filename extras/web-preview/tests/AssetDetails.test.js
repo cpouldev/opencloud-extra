@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import AssetInfo from '../src/AssetInfo.vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
+import AssetDetails from '../src/AssetDetails.vue'
 
 const file = (changes = {}) => ({
   id: 'file-a', name: 'artwork.ai', etag: 'etag-a', extension: 'ai',
@@ -13,6 +14,10 @@ let wrapper
 let loadPreview
 let fetchMetadata
 let revokeObjectURL
+let resourceRef
+let spaceRef
+let selectedResources
+let selectedResourceSpace
 
 function deferred() {
   let resolve
@@ -25,11 +30,21 @@ function deferred() {
 }
 
 function render(resource = file(), selectedSpace = space) {
-  wrapper = mount(AssetInfo, { props: { resource, space: selectedSpace } })
+  resourceRef = ref(resource)
+  spaceRef = ref(selectedSpace)
+  wrapper = mount(defineComponent({ render: () => h('dl', [h(AssetDetails)]) }), {
+    global: {
+      provide: { resource: resourceRef, space: spaceRef },
+      stubs: { OcButton: { template: '<button><slot /></button>' } }
+    }
+  })
   return wrapper
 }
 
 beforeEach(() => {
+  selectedResources = ref([])
+  selectedResourceSpace = ref(null)
+  globalThis.__extraSelectedResources = { selectedResources, selectedResourceSpace }
   loadPreview = vi.fn().mockResolvedValue('blob:metadata-a')
   globalThis.__extraPreviewService = { loadPreview }
   fetchMetadata = vi.fn().mockImplementation(() => Promise.resolve(response()))
@@ -41,21 +56,22 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   delete globalThis.__extraPreviewService
+  delete globalThis.__extraSelectedResources
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
-describe('asset information panel', () => {
-  it('shows ordinary file facts while source information loads', async () => {
+describe('native Details source rows', () => {
+  it('loads inside the existing definition list without duplicating file facts', async () => {
     loadPreview.mockReturnValue(deferred().promise)
     render()
-    expect(wrapper.get('h2').text()).toBe('File information')
     expect(wrapper.get('[data-testid="extra-asset-info-loading"]').attributes('role')).toBe('status')
-    const facts = wrapper.get('[data-testid="extra-asset-file-facts"]').text()
-    expect(facts).toContain('artwork.ai')
-    expect(facts).toContain('1.5 KiB')
-    expect(facts).toContain('application/postscript')
-    expect(wrapper.get('time').attributes('datetime')).toBe('2026-09-20T10:30:00.000Z')
+    expect(wrapper.get('dl').element.children[0].tagName).toBe('DT')
+    expect(wrapper.get('dl').element.children[1].tagName).toBe('DD')
+    expect(wrapper.findAll('dl')).toHaveLength(1)
+    expect(wrapper.find('aside, h2, time').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('artwork.ai')
+    expect(wrapper.text()).not.toContain('1.5 KiB')
     expect(fetchMetadata).not.toHaveBeenCalled()
   })
 
@@ -74,11 +90,23 @@ describe('asset information panel', () => {
   it('displays actual source dimensions instead of preview pixels', async () => {
     render(file({ image: { width: 2048, height: 1024 } }))
     await flushPromises()
-    const facts = wrapper.get('[data-testid="extra-asset-source-facts"]').text()
+    const facts = wrapper.text()
     expect(facts).toContain('Source dimensions')
     expect(facts).toContain('6,000 × 4,000 px')
     expect(facts).not.toContain('2,048')
     expect(wrapper.find('[data-testid="extra-asset-info-loading"]').exists()).toBe(false)
+  })
+
+  it.each([
+    ['image/jpeg', { width: 6000, height: 4000 }, '6,000 × 4,000 px'],
+    ['video/mp4', { videoCodec: 'hevc' }, 'hevc'],
+    ['audio/flac', { sampleRate: 44100 }, '44.1 kHz']
+  ])('shows supported %s source information without a filename extension', async (mimeType, metadata, value) => {
+    fetchMetadata.mockResolvedValue(response(metadata))
+    render(file({ name: 'source', extension: '', mimeType }))
+    await flushPromises()
+    expect(wrapper.text()).toContain(value)
+    expect(loadPreview).toHaveBeenCalledOnce()
   })
 
   it('displays names as safe untruncated text', async () => {
@@ -86,8 +114,7 @@ describe('asset information panel', () => {
     fetchMetadata.mockResolvedValue(response({ colorProfile: '<script>alert(1)</script>' }))
     render(file({ name }))
     await flushPromises()
-    expect(wrapper.get('[data-testid="extra-asset-file-facts"]').text()).toContain(name)
-    expect(wrapper.get('[data-testid="extra-asset-source-facts"]').text()).toContain('<script>alert(1)</script>')
+    expect(wrapper.text()).toContain('<script>alert(1)</script>')
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.find('img').exists()).toBe(false)
   })
@@ -97,8 +124,7 @@ describe('asset information panel', () => {
     render()
     await flushPromises()
     expect(wrapper.get('[data-testid="extra-asset-info-empty"]').text()).toContain('No additional source details')
-    expect(wrapper.get('[data-testid="extra-asset-file-facts"]').text()).toContain('artwork.ai')
-    expect(wrapper.find('[data-testid="extra-asset-source-facts"]').exists()).toBe(false)
+    expect(wrapper.find('[data-extra-source-field]').exists()).toBe(false)
   })
 
   it('revokes a successfully consumed blob URL', async () => {
@@ -112,7 +138,6 @@ describe('asset information panel', () => {
     render()
     await flushPromises()
     expect(wrapper.get('[data-testid="extra-asset-info-error"]').text()).toContain('You can still use the preview')
-    expect(wrapper.get('[data-testid="extra-asset-file-facts"]').text()).toContain('artwork.ai')
     expect(wrapper.emitted('close')).toBeUndefined()
   })
 
@@ -123,7 +148,7 @@ describe('asset information panel', () => {
     await wrapper.get('[aria-label="Retry file information"]').trigger('click')
     await flushPromises()
     expect(loadPreview).toHaveBeenCalledTimes(2)
-    expect(wrapper.get('[data-testid="extra-asset-source-facts"]').text()).toContain('DejaVu Sans')
+    expect(wrapper.text()).toContain('DejaVu Sans')
     expect(wrapper.find('[data-testid="extra-asset-info-error"]').exists()).toBe(false)
   })
 
@@ -143,15 +168,13 @@ describe('asset information panel', () => {
     render()
     await flushPromises()
     expect(wrapper.get('[data-testid="extra-asset-info-error"]').text()).toContain('too large to inspect')
-    expect(wrapper.get('[data-testid="extra-asset-file-facts"]').text()).toContain('artwork.ai')
   })
 
   for (const { name, resource, message } of [
     { name: 'download permission denied', resource: file({ canDownload: () => false }), message: 'permission' },
     { name: 'missing permission check', resource: file({ canDownload: undefined }), message: 'permission' },
     { name: 'unavailable permission context', resource: file({ canDownload: () => { throw new Error('not ready') } }), message: 'permission' },
-    { name: 'encrypted vault file', resource: file({ isInVault: true }), message: 'encrypted' },
-    { name: 'folder resource', resource: file({ isFolder: true }), message: 'available for files' }
+    { name: 'encrypted vault file', resource: file({ isInVault: true }), message: 'encrypted' }
   ]) {
     it(`makes no request for ${name}`, async () => {
       render(resource)
@@ -176,13 +199,14 @@ describe('asset information panel', () => {
     fetchMetadata.mockResolvedValue(response({ fontFamily: 'New font' }))
     render()
     const signal = loadPreview.mock.calls[0][3]
-    await wrapper.setProps({ resource: file({ id: 'file-b', name: 'new-font.otf' }) })
+    resourceRef.value = file({ id: 'file-b', name: 'new-font.otf', extension: 'otf' })
+    await nextTick()
     pending.resolve('blob:stale-metadata')
     await flushPromises()
     expect(signal.aborted).toBe(true)
     expect(fetchMetadata).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:stale-metadata')
-    expect(wrapper.get('[data-testid="extra-asset-source-facts"]').text()).toContain('New font')
+    expect(wrapper.text()).toContain('New font')
   })
 
   it('prevents an old fetch from replacing the current source facts', async () => {
@@ -192,12 +216,13 @@ describe('asset information panel', () => {
     render()
     await flushPromises()
     const signal = fetchMetadata.mock.calls[0][1].signal
-    await wrapper.setProps({ resource: file({ id: 'file-b', name: 'new-font.otf' }) })
+    resourceRef.value = file({ id: 'file-b', name: 'new-font.otf', extension: 'otf' })
+    await nextTick()
     expect(signal.aborted).toBe(true)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:metadata-a')
     pending.resolve(response({ width: 9999, height: 9999 }))
     await flushPromises()
-    const facts = wrapper.get('[data-testid="extra-asset-source-facts"]').text()
+    const facts = wrapper.text()
     expect(facts).toContain('New font')
     expect(facts).not.toContain('9,999')
     expect(revokeObjectURL.mock.calls.filter(([url]) => url === 'blob:metadata-a')).toHaveLength(1)
@@ -207,16 +232,68 @@ describe('asset information panel', () => {
     render()
     await flushPromises()
     fetchMetadata.mockResolvedValueOnce(response({ width: 12000, height: 8000 }))
-    await wrapper.setProps({ resource: file({ etag: 'etag-b' }) })
+    resourceRef.value = file({ etag: 'etag-b' })
+    await nextTick()
     await flushPromises()
     expect(loadPreview).toHaveBeenCalledTimes(2)
-    expect(wrapper.get('[data-testid="extra-asset-source-facts"]').text()).toContain('12,000 × 8,000 px')
+    expect(wrapper.text()).toContain('12,000 × 8,000 px')
+  })
+
+  it('uses a newer same-ID selection when the native injected resource stays cached', async () => {
+    selectedResources.value = [file()]
+    selectedResourceSpace.value = space
+    render(file({ webDavPath: '/files/current/artwork.ai' }))
+    await flushPromises()
+    fetchMetadata.mockResolvedValueOnce(response({ width: 12000, height: 8000 }))
+    selectedResources.value = [file({ etag: 'etag-b' })]
+    await flushPromises()
+    expect(resourceRef.value.etag).toBe('etag-a')
+    expect(loadPreview).toHaveBeenCalledTimes(2)
+    expect(loadPreview.mock.calls[1][0]).toMatchObject({
+      resource: { id: 'file-a', etag: 'etag-b', webDavPath: '/files/current/artwork.ai' }, space
+    })
+    expect(wrapper.text()).toContain('12,000 × 8,000 px')
+  })
+
+  it('clears old facts when the matching selection revokes download permission', async () => {
+    selectedResources.value = [file()]
+    selectedResourceSpace.value = space
+    render()
+    await flushPromises()
+    selectedResources.value = [file({ permissions: '', canDownload: () => false })]
+    await flushPromises()
+    expect(resourceRef.value.canDownload()).toBe(true)
+    expect(loadPreview).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-extra-source-field]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="extra-asset-info-error"]').text()).toContain('permission')
+  })
+
+  it.each([
+    { name: 'another file', selected: file({ id: 'other-file' }), selectedSpace: space },
+    { name: 'another space', selected: file(), selectedSpace: { id: 'space-b' } },
+    { name: 'another drive type', selected: file(), selectedSpace: { id: 'space-a', driveType: 'public' } },
+    { name: 'another public share alias', selected: file(), selectedSpace: { id: 'space-a', driveAlias: 'public/other' } },
+    { name: 'unresolved space', selected: file(), selectedSpace: null }
+  ])('does not combine an injected file with $name', async ({ selected, selectedSpace }) => {
+    selectedResources.value = [file()]
+    selectedResourceSpace.value = space
+    fetchMetadata.mockReturnValue(deferred().promise)
+    render()
+    await flushPromises()
+    const signal = fetchMetadata.mock.calls[0][1].signal
+    selectedResources.value = [selected]
+    selectedResourceSpace.value = selectedSpace
+    await nextTick()
+    expect(signal.aborted).toBe(true)
+    expect(loadPreview).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('dl').element.children).toHaveLength(0)
   })
 
   it('reloads metadata when the share location changes', async () => {
     render()
     await flushPromises()
-    await wrapper.setProps({ space: { id: 'space-b' } })
+    spaceRef.value = { id: 'space-b' }
+    await nextTick()
     await flushPromises()
     expect(loadPreview).toHaveBeenCalledTimes(2)
     expect(loadPreview.mock.calls[1][0].space.id).toBe('space-b')
@@ -225,10 +302,11 @@ describe('asset information panel', () => {
   it('removes extracted facts when permission is revoked', async () => {
     render()
     await flushPromises()
-    await wrapper.setProps({ resource: file({ canDownload: () => false }) })
+    resourceRef.value = file({ canDownload: () => false })
+    await nextTick()
     await flushPromises()
     expect(loadPreview).toHaveBeenCalledTimes(1)
-    expect(wrapper.find('[data-testid="extra-asset-source-facts"]').exists()).toBe(false)
+    expect(wrapper.find('[data-extra-source-field]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="extra-asset-info-error"]').text()).toContain('permission')
   })
 
@@ -283,15 +361,46 @@ describe('asset information panel', () => {
     render()
     await flushPromises()
     expect(fetchMetadata.mock.calls[0][0]).toBe(url)
-    expect(wrapper.get('[data-testid="extra-asset-source-facts"]').text()).toContain('6,000 × 4,000 px')
+    expect(wrapper.text()).toContain('6,000 × 4,000 px')
     wrapper.unmount()
     wrapper = null
     expect(revokeObjectURL).not.toHaveBeenCalled()
   })
 
-  it('delegates panel visibility to its parent', async () => {
+  it.each([
+    { name: 'folder', resource: file({ isFolder: true }) },
+    { name: 'folder type', resource: file({ type: 'folder' }) },
+    { name: 'project space', resource: file({ driveType: 'project' }) },
+    { name: 'unsupported text file', resource: file({ extension: 'txt', name: 'notes.txt' }) },
+    { name: 'unknown MIME family', resource: file({ extension: '', name: 'source', mimeType: 'image/example' }) },
+    { name: 'Office preview without source extraction', resource: file({ extension: 'docx' }) },
+    { name: 'archive preview without source extraction', resource: file({ extension: 'sketch' }) },
+    { name: 'excluded EPS with an image MIME', resource: file({ extension: 'eps', mimeType: 'image/jpeg' }) },
+    { name: 'deleted file', resource: file({ ddate: '2026-09-20' }) },
+    { name: 'missing selection', resource: null }
+  ])('adds no source rows for a $name', async ({ resource }) => {
+    render(resource)
+    await flushPromises()
+    expect(loadPreview).not.toHaveBeenCalled()
+    expect(fetchMetadata).not.toHaveBeenCalled()
+    expect(wrapper.get('dl').element.children).toHaveLength(0)
+  })
+
+  it('clears source rows when the native sidebar clears selection', async () => {
     render()
-    await wrapper.get('[aria-label="Close file information"]').trigger('click')
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    await flushPromises()
+    resourceRef.value = null
+    await nextTick()
+    expect(wrapper.get('dl').element.children).toHaveLength(0)
+    expect(loadPreview).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders extracted values as direct native Details rows', async () => {
+    render()
+    await flushPromises()
+    expect(wrapper.get('dl').element.children[0].tagName).toBe('DT')
+    const value = wrapper.get('[data-testid="extra-source-dimensions"]')
+    expect(value.element.parentElement.tagName).toBe('DL')
+    expect(value.text()).toBe('6,000 × 4,000 px')
   })
 })

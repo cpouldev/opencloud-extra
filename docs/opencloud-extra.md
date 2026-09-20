@@ -61,43 +61,44 @@ depth, indexed-color, and live-filter variants may not render with ImageMagick.
 
 ## Opening full previews
 
-The image bundles a **Rendered preview** web app. Clicking Illustrator,
-Photoshop, fonts, RAW, additional image formats, creative files, or comics opens
-the rendered image with zoom, pan, actual-size and fit-to-window controls.
-It loads a cached preview of up to 2048 pixels through OpenCloud's existing
-authenticated preview service. Files with smaller embedded previews retain
-their available detail. Unsupported contents show an explanation and a retry
-button.
+OpenCloud's native **Preview** gallery opens Illustrator, Photoshop, fonts, RAW,
+additional image formats, creative files and comics alongside ordinary images.
+It uses the existing thumbnail strip and bottom controls for navigation, zoom,
+pan, rotation, reset and fullscreen. Extra formats load cached rendered images
+of up to 2048 pixels through the authenticated preview service, without sending
+their original file bytes to the browser. Smaller embedded previews retain their
+available detail. Failed conversions show an explanation and a retry button.
 
-The ordinary image, PDF, SVG, audio, video and text viewers remain available.
-EPUB retains its reader. Office files use a configured editor when available;
-**Rendered preview** is also available as a first-page or first-slide fallback.
-This viewer displays an image; it does not edit Illustrator artwork or Photoshop
-layers. Existing format requirements and size limits still apply.
+Native audio/video playback remains available, subject to browser codec support.
+PDF clicks retain the PDF viewer, EPUB retains its reader, and Office files use
+a configured editor when available. **Quick Look** can show their first page,
+slide or cover in the gallery. Extra media formats outside the native player's
+supported MIME types can show a rendered frame or artwork through Quick Look.
+Rendered previews do not edit Illustrator artwork or Photoshop layers. Existing
+format requirements and size limits still apply.
 
-The app is enabled automatically with the extra image, including deployments
-with existing data volumes. Recreate the OpenCloud containers with the updated
-image and reload the web page. There is no need to re-upload files or generate
-previews manually. Grid thumbnails and full previews are generated on demand
-and cached separately.
+The native gallery integration is included automatically in the image, including
+deployments with existing data volumes. Recreate the OpenCloud containers with
+the updated image and reload the web page. There is no need to re-upload files
+or generate previews manually. Grid thumbnails and full previews are generated
+on demand and cached separately.
 
 ### Quick Look and file information
 
 In a folder's table or tile view, select one supported file and press **Space**
-to open Quick Look. **Left/Right** or the previous/next buttons browse the
-supported files on the current displayed page in the same order. **Space** or
-**Escape** closes the viewer; **Shift + arrow keys** pans a zoomed image.
-The context menu also offers **Quick Look** for native images, PDF, video frames
-and audio previews. Their normal click actions keep opening the native apps.
+to open the native gallery. **Left/Right**, the previous/next buttons and the
+thumbnail strip browse its files in the gallery's normal order. Navigation wraps
+within that folder or public share. Single-file shares show only the shared file.
+**Space** closes the gallery when its stage has focus; **Escape** and the native
+top-bar close button also return to the previous view. Inputs, buttons and native
+media controls keep their usual keyboard behavior. Search views retain their
+existing keyboard behavior. The context menu also offers **Quick Look**.
 
-Navigation does not wrap or cross into another folder, page or public share.
-Direct file links show one file. Search views retain their existing keyboard
-behavior. Typing into inputs and using modified shortcuts does not open Quick
-Look. An inaccessible, encrypted or unsupported file cannot join the sequence.
+The **Asset information** icon in the existing bottom toolbar opens the native
+**Details** sidebar. Source properties appear beside OpenCloud's normal file
+details and follow the current file while navigating:
 
-The **Info** button opens source information on demand:
-
-- File name, size, type and modification time.
+- OpenCloud's existing file details, including size and modification time.
 - Original raster/RAW dimensions, available color space, embedded ICC profile
   name and bit depth. These are source properties, not thumbnail dimensions.
 - PDF-compatible Illustrator/PDF page count and first-page dimensions in points;
@@ -106,11 +107,14 @@ The **Info** button opens source information on demand:
 - Font family, style, full name, version, glyph count, collection face count and
   variable-font status; details describe the first face of a collection.
 
-Unavailable properties are omitted. Office, text, archive and book files retain
+The ordinary top-bar details toggle opens the same sidebar. On narrow screens,
+it uses OpenCloud's existing bottom drawer. Unavailable properties are omitted.
+Office, text, archive and book files retain
 basic file information without a separate source scan. Relative SVG dimensions
 and a viewBox alone do not establish a physical page size. Source information is
 cached by file identity and revision and uses the same download permissions and
-public-link checks as previews. It never downloads the original to the browser.
+public-link checks as previews. Metadata extraction never downloads the original
+to the browser.
 
 ## Configuration and limits
 

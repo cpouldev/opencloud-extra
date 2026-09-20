@@ -1,12 +1,12 @@
 # Container build and verification
 
-`Dockerfile.extra` builds the downstream Go source and its pinned upstream web
-assets, then installs the renderer in an Alpine 3.24 runtime. It supports native
-`linux/amd64` and `linux/arm64` builds. Run from the repository root:
+`Dockerfile.extra` builds the downstream Go source and the pinned Web source with
+the native gallery patch, then installs the renderer in an Alpine 3.24 runtime.
+It supports native `linux/amd64` and `linux/arm64` builds. Run from the repository root:
 
 ```sh
 docker build -f Dockerfile.extra \
-  --build-arg VERSION=8.0.1-extra.1 \
+  --build-arg VERSION=8.0.1-extra.4 \
   --build-arg REVISION="$(git rev-parse HEAD)" \
   -t opencloud-extra:local .
 docker run --rm --network none \
@@ -23,8 +23,9 @@ The following targets shorten focused checks:
 | --- | --- |
 | `runtime-deps` | Converter libraries and executables |
 | `runtime` | Converters, renderer, and smoke command; no OpenCloud binary |
-| `extra-web` | Bundled preview app build and component tests |
-| `build` | Generated assets, embedded preview app and compiled Go binary |
+| `extra-web-tests` | Native gallery integration module tests |
+| `native-web` | Pinned Web source, gallery patch, strict type check, component tests and full Web build |
+| `build` | Generated assets, embedded native gallery and compiled Go binary |
 | `go-test` | Thumbnail, Graph/WebDAV service, and libvips thumbnail tests |
 | `final` | Deployable OpenCloud Extra image |
 
@@ -38,6 +39,10 @@ docker run --rm --network none -v "$PWD:/src:ro" \
   opencloud-extra:runtime -m unittest discover -s /src/extras/tests
 docker build -f Dockerfile.extra --target go-test .
 ```
+
+The [native gallery build](../web-gallery/README.md) describes source/version
+guards and focused Web checks. The image retains Web's license and dependency
+notices under `/usr/share/licenses/opencloud-extra/web`.
 
 The smoke command runs real HEIC, AVIF, JPEG XL, JPEG 2000, OpenEXR, HDR, TGA,
 and ICO conversions and checks the installed video decoders, libvips loaders,
@@ -56,11 +61,13 @@ docker run --rm --network none -v "$PWD:/src:ro" \
 ```
 
 The browser suite starts a disposable, seeded server on `127.0.0.1:9200`, signs
-in through OpenCloud's login page, and opens actual files. It checks full
-previews, zoom/pan/fit, loading and error states, and existing JPEG/PDF viewers.
-Quick Look checks cover table/tile keyboard opening, visible order, navigation
-past a failed conversion and closing. The information panel checks source
-dimensions, codecs, fonts, deferred loading and absence of original downloads.
+in through OpenCloud's login page, and opens actual files. It checks extra files
+inside the native gallery, its photo roll, zoom/pan/rotation/reset/fullscreen,
+loading and error states, and ordinary JPEG/PDF behavior. Quick Look checks cover
+table/tile keyboard opening, gallery navigation, public share boundaries and
+closing. Native Details checks source dimensions, codecs, fonts, deferred loading
+and absence of original downloads for rendered extras. Mobile checks use the
+host's existing Details drawer.
 The server and its temporary data are removed afterward. Port 9200 must be free.
 
 ```sh

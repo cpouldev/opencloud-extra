@@ -1,0 +1,1071 @@
+diff --git a/packages/web-app-preview/src/App.vue b/packages/web-app-preview/src/App.vue
+index cd3cf17..ba6a1e2 100644
+--- a/packages/web-app-preview/src/App.vue
++++ b/packages/web-app-preview/src/App.vue
+@@ -13,6 +13,7 @@
+     @keydown.right="goToNext"
+     @keydown.down="goToNext"
+     @keydown.up="goToPrev"
++    @keydown.space="onSpaceKeydown"
+   >
+     <photo-roll
+       v-if="photoRollEnabled"
+@@ -39,6 +40,15 @@
+           <p>
+             {{ $gettext('Failed to load "%{filename}"', { filename: activeMediaFile.name }) }}
+           </p>
++          <p v-if="activeMediaFile.isExtraRendered" class="max-w-xl px-4">
++            {{ extraPreviewHint(activeMediaFile.resource) }}
++          </p>
++          <oc-button
++            v-if="activeMediaFile.isExtraRendered && !activeMediaFile.resource.isInVault"
++            :aria-label="$gettext('Retry preview')"
++            @click="loadPreviewImage(activeMediaFile)"
++            >{{ $gettext('Try again') }}</oc-button
++          >
+         </div>
+         <media-motion-photo
+           v-else-if="activeMediaFile.isMotionPhoto"
+@@ -51,6 +61,7 @@
+           v-else-if="activeMediaFile.isImage"
+           :file="activeMediaFile"
+           :current-image-rotation="currentImageRotation"
++          @error="onImageError"
+         />
+         <media-video
+           v-else-if="activeMediaFile.isVideo"
+@@ -140,6 +151,13 @@ import {
+ import { mimeTypes } from './mimeTypes'
+ import { RouteLocationRaw } from 'vue-router'
+ import { SortDir } from '@opencloud-eu/design-system/helpers'
++import {
++  canPreviewFile,
++  extraPreviewHint,
++  isExtraRenderedFile,
++  previewRevision
++} from './composables/extraFiles'
++import { isEditableTarget } from './extra/quicklook.js'
+ 
+ const {
+   activeFiles,
+@@ -189,6 +207,7 @@ const motionPlayer = useTemplateRef<{ isPlaying: boolean; toggle: () => void }>(
+ const keyBindings: string[] = []
+ let loadPreviewImageController: AbortController = null
+ let reloadUrlController: AbortController = null
++let disposed = false
+ 
+ const space = computed(() => {
+   if (!unref(activeMediaFile)) {
+@@ -214,7 +233,11 @@ const fileIdQuery = useRouteQuery('fileId')
+ const fileId = computed(() => queryItemAsString(unref(fileIdQuery)))
+ 
+ const buildMediaFiles = () => {
++  loadPreviewImageController?.abort()
++  reloadUrlController?.abort()
++  unref(mediaFiles).forEach((file) => revokeUrl(file.url))
+   if (!activeFiles) {
++    mediaFiles.value = []
+     return
+   }
+ 
+@@ -233,22 +256,28 @@ const buildMediaFiles = () => {
+       return false
+     }
+ 
+-    return mimeTypes.includes(file.mimeType?.toLowerCase()) && file.canDownload()
++    return (
++      (mimeTypes.includes(file.mimeType?.toLowerCase()) || isExtraRenderedFile(file)) &&
++      canPreviewFile(file)
++    )
+   })
+ 
+   const sortFields = determineResourceTableSortFields(filteredFiles[0])
+   const sortedFiles = sortHelper(filteredFiles, sortFields, unref(sortBy), unref(sortDir))
+ 
+   mediaFiles.value = sortedFiles.map((file) => {
++    const isExtraRendered = isExtraRenderedFile(file)
+     return {
+       id: file.id,
+       name: file.name,
+       ext: file.extension,
+       mimeType: file.mimeType,
+-      isVideo: isFileTypeVideo(file),
+-      isImage: isFileTypeImage(file),
+-      isAudio: isFileTypeAudio(file),
+-      isMotionPhoto: isFileTypeImage(file) && !isEmpty(file.motionPhoto),
++      isVideo: !isExtraRendered && isFileTypeVideo(file),
++      isImage: isExtraRendered || isFileTypeImage(file),
++      isAudio: !isExtraRendered && isFileTypeAudio(file),
++      isMotionPhoto: !isExtraRendered && isFileTypeImage(file) && !isEmpty(file.motionPhoto),
++      isExtraRendered,
++      previewRevision: previewRevision(file),
+       isLoading: true,
+       isError: false,
+       resource: file
+@@ -272,65 +301,100 @@ const loading = computed(() => {
+ })
+ 
+ const loadPreviewImage = async (mediaFile: MediaFile) => {
+-  if (mediaFile.url) {
+-    return
+-  }
+-
+-  if (loadPreviewImageController) {
+-    loadPreviewImageController.abort()
+-  }
+-
+-  loadPreviewImageController = new AbortController()
++  // Abort before checking the cache: going back to an already loaded file must
++  // still cancel the preview or signed-URL request for the file we just left.
++  loadPreviewImageController?.abort()
++  reloadUrlController?.abort()
++  const revision = previewRevision(mediaFile.resource)
++  if (mediaFile.url && mediaFile.previewRevision === revision) return
++  if (mediaFile.url) revokeUrl(mediaFile.url)
++  mediaFile.url = undefined
++  mediaFile.previewRevision = revision
++  mediaFile.isError = false
++  mediaFile.isLoading = true
++
++  const controller = new AbortController()
++  loadPreviewImageController = controller
++  const { signal } = controller
+ 
+   try {
+-    // Vault images can't be thumbnailed server-side (the server only holds
+-    // the ciphertext blob), so skip the preview service and fetch the full
+-    // image instead - `getUrlForResource` is vault-aware and returns a blob
+-    // URL with cleartext bytes. Gate strictly on the vault flag: every other
+-    // image keeps the normal preview-service path, including the legacy
+-    // no-thumbnail behaviour (do NOT key this off hasPreview(), or plain
+-    // images the server has no thumbnail for would download the full
+-    // original on every open).
++    if (mediaFile.isExtraRendered && mediaFile.resource.isInVault) {
++      throw new Error('Encrypted files cannot be rendered on the server')
++    }
++    // Native SVG and vault images retain their original/decrypted path. Extra
++    // formats always remain on the bounded server-rendered image path, even if
++    // storage reports a misleading native image MIME type.
+     const useFullImage =
+-      mediaFile.isImage && (mediaFile.resource.isInVault || mediaFile.mimeType === 'image/svg+xml')
+-
+-    if (mediaFile.isImage && !useFullImage) {
+-      mediaFile.url = await previewService.loadPreview(
+-        {
+-          space: unref(space),
+-          resource: mediaFile.resource,
+-          dimensions: unref(dimensions),
+-          processor: ProcessorType.enum.fit
+-        },
+-        false,
+-        false,
+-        loadPreviewImageController.signal
+-      )
+-    } else {
+-      mediaFile.url = await getUrlForResource(unref(space), mediaFile.resource, {
+-        signal: loadPreviewImageController.signal
+-      })
++      !mediaFile.isExtraRendered &&
++      mediaFile.isImage &&
++      (mediaFile.resource.isInVault || mediaFile.mimeType === 'image/svg+xml')
++    const matchingSpace = getMatchingSpace(mediaFile.resource)
++    const url =
++      mediaFile.isImage && !useFullImage
++        ? await previewService.loadPreview(
++            {
++              space: matchingSpace,
++              resource: mediaFile.resource,
++              dimensions: mediaFile.isExtraRendered ? [2048, 2048] : unref(dimensions),
++              processor: ProcessorType.enum.fit
++            },
++            false,
++            false,
++            signal
++          )
++        : await getUrlForResource(matchingSpace, mediaFile.resource, { signal })
++
++    if (signal.aborted || disposed || revision !== previewRevision(mediaFile.resource)) {
++      revokeUrl(url)
++      return
+     }
+-
++    if (!url) throw new Error('No preview was returned')
++    mediaFile.url = url
+     mediaFile.isLoading = false
+   } catch (e) {
+-    if (e.name === 'CanceledError') {
+-      return
+-    }
+-
++    if (signal.aborted || disposed || e.name === 'CanceledError' || e.name === 'AbortError') return
+     console.error(e)
+     mediaFile.isError = true
+     mediaFile.isLoading = false
+   } finally {
+-    loadPreviewImageController = null
++    if (loadPreviewImageController === controller) loadPreviewImageController = null
+   }
+ }
+ 
++const onImageError = (mediaFile: MediaFile) => {
++  if (mediaFile !== unref(activeMediaFile)) return
++  revokeUrl(mediaFile.url)
++  mediaFile.url = undefined
++  mediaFile.isError = true
++  mediaFile.isLoading = false
++}
++
++const onSpaceKeydown = (event: KeyboardEvent) => {
++  const target = event.target as HTMLElement
++  if (
++    event.defaultPrevented ||
++    event.isComposing ||
++    event.ctrlKey ||
++    event.metaKey ||
++    event.altKey ||
++    event.shiftKey ||
++    isEditableTarget(target) ||
++    target?.closest(
++      'button, a, input, [role="button"], [role="dialog"], [aria-modal="true"], video, audio'
++    )
++  )
++    return
++  event.preventDefault()
++  event.stopPropagation()
++  if (!event.repeat) closeApp()
++}
++
+ /** Signed URLs expire, so fetch a fresh one on demand. */
+ async function reloadMediaFileUrl(mediaFile: MediaFile) {
+   reloadUrlController?.abort()
+   reloadUrlController = new AbortController()
+   const { signal } = reloadUrlController
++  const revision = previewRevision(mediaFile.resource)
+ 
+   try {
+     const url = await getUrlForResource(
+@@ -340,7 +404,7 @@ async function reloadMediaFileUrl(mediaFile: MediaFile) {
+       { signal }
+     )
+ 
+-    if (signal.aborted) {
++    if (signal.aborted || disposed || revision !== previewRevision(mediaFile.resource)) {
+       revokeUrl(url)
+       return
+     }
+@@ -348,7 +412,7 @@ async function reloadMediaFileUrl(mediaFile: MediaFile) {
+     revokeUrl(mediaFile.url)
+     mediaFile.url = url
+   } catch (e) {
+-    if (e.name === 'CanceledError') {
++    if (signal.aborted || disposed || e.name === 'CanceledError' || e.name === 'AbortError') {
+       return
+     }
+ 
+@@ -362,6 +426,7 @@ async function reloadMediaFileUrl(mediaFile: MediaFile) {
+ }
+ 
+ const goToNext = () => {
++  if (!unref(mediaFiles).length) return
+   if (unref(activeIndex) + 1 >= unref(mediaFiles).length) {
+     activeIndex.value = 0
+     updateLocalHistory()
+@@ -372,6 +437,7 @@ const goToNext = () => {
+ }
+ 
+ const goToPrev = () => {
++  if (!unref(mediaFiles).length) return
+   if (unref(activeIndex) === 0) {
+     activeIndex.value = unref(mediaFiles).length - 1
+     updateLocalHistory()
+@@ -401,7 +467,7 @@ const onDeleteResourceCallback = async () => {
+ const updateLocalHistory = () => {
+   // this is a rare edge case when browsing quickly through a lot of files
+   // we workaround context being null, when useDriveResolver is in loading state
+-  if (!currentFileContext) {
++  if (!currentFileContext || !unref(activeMediaFile)) {
+     return
+   }
+ 
+@@ -453,7 +519,7 @@ watch(
+ )
+ 
+ watch(
+-  () => activeFiles,
++  [() => activeFiles, () => activeFiles?.map(previewRevision)],
+   () => {
+     buildMediaFiles()
+ 
+@@ -467,6 +533,8 @@ watch(
+ 
+ watch(activeMediaFile, (newValue, oldValue) => {
+   if (!unref(activeMediaFile)) {
++    loadPreviewImageController?.abort()
++    reloadUrlController?.abort()
+     return
+   }
+ 
+@@ -489,7 +557,7 @@ watch(
+   async (loading) => {
+     if (!loading) {
+       await nextTick()
+-      unref(preview).focus()
++      unref(preview)?.focus()
+     }
+   },
+   { immediate: true }
+@@ -508,6 +576,7 @@ onMounted(() => {
+ })
+ 
+ onBeforeUnmount(() => {
++  disposed = true
+   window.removeEventListener('popstate', setActiveFile)
+   keyBindings.forEach((keyBindingId) => {
+     removeKeyAction(keyBindingId)
+diff --git a/packages/web-app-preview/src/components/MediaControls.vue b/packages/web-app-preview/src/components/MediaControls.vue
+index 89842ba..9ebc1bd 100644
+--- a/packages/web-app-preview/src/components/MediaControls.vue
++++ b/packages/web-app-preview/src/components/MediaControls.vue
+@@ -110,6 +110,15 @@
+           />
+         </oc-button>
+       </div>
++      <oc-button
++        v-oc-tooltip="assetInformationDescription"
++        class="preview-controls-info raw-hover-surface p-1"
++        appearance="raw"
++        :aria-label="assetInformationDescription"
++        @click="openSideBarPanel('details')"
++      >
++        <oc-icon name="information" fill-type="line" />
++      </oc-button>
+       <oc-button
+         v-if="showMotionControl"
+         v-oc-tooltip="motionDescription"
+@@ -156,7 +165,13 @@
+ <script setup lang="ts">
+ import { computed, unref } from 'vue'
+ import { useGettext } from 'vue3-gettext'
+-import { ActionOptions, isMacOs, useFileActions, useGetMatchingSpace } from '@opencloud-eu/web-pkg'
++import {
++  ActionOptions,
++  isMacOs,
++  useFileActions,
++  useGetMatchingSpace,
++  useSideBar
++} from '@opencloud-eu/web-pkg'
+ import { MediaFile } from '../helpers/types'
+ import { previewToolbarActionsExtensionPoint } from '../extensionPoints'
+ 
+@@ -201,6 +216,7 @@ const emit = defineEmits<{
+ const { $gettext } = useGettext()
+ const { getMatchingSpace } = useGetMatchingSpace()
+ const { getExtensionActions } = useFileActions()
++const { openSideBarPanel } = useSideBar()
+ 
+ const space = computed(() => getMatchingSpace(files[activeIndex].resource))
+ const actionOptions = computed(() => ({
+@@ -259,6 +275,7 @@ const resourceFavoriteIconDescription = computed(() => {
+ })
+ 
+ const enterFullScreenDescription = computed(() => $gettext('Enter full screen mode'))
++const assetInformationDescription = computed(() => $gettext('Asset information'))
+ const exitFullScreenDescription = computed(() => $gettext('Exit full screen mode'))
+ const imageShrinkDescription = computed(() => $gettext('Shrink the image (⇧ + Mouse wheel)'))
+ const imageZoomDescription = computed(() => $gettext('Enlarge the image (⇧ + Mouse wheel)'))
+diff --git a/packages/web-app-preview/src/components/Sources/MediaImage.vue b/packages/web-app-preview/src/components/Sources/MediaImage.vue
+index e0115d6..38dfdd7 100644
+--- a/packages/web-app-preview/src/components/Sources/MediaImage.vue
++++ b/packages/web-app-preview/src/components/Sources/MediaImage.vue
+@@ -17,7 +17,13 @@
+     class="relative grid size-full grid-cols-[100%] grid-rows-[100%] place-items-center pt-4 [&>*]:[grid-area:1/1]"
+     :data-id="file.id"
+   >
+-    <img :src="file.url" :alt="file.name" class="max-w-full max-h-full" />
++    <img
++      :src="file.url"
++      :alt="file.name"
++      class="max-w-full max-h-full"
++      @load="imageLoaded"
++      @error="imageFailed"
++    />
+     <slot name="overlay" />
+   </div>
+   <img
+@@ -28,6 +34,8 @@
+     :alt="file.name"
+     :data-id="file.id"
+     class="max-w-full max-h-full pt-4"
++    @load="imageLoaded"
++    @error="imageFailed"
+   />
+ </template>
+ <script setup lang="ts">
+@@ -56,12 +64,31 @@ const { file, currentImageRotation } = defineProps<{
+ }>()
+ 
+ const eventBus = useEventBus()
++const emit = defineEmits<{ (e: 'error', file: MediaFile): void }>()
+ 
+ // with an overlay slot this is a stage-filling wrapper around the still: a
+ // content-sized wrapper would void the percentage max-w/max-h of its children
+ const img = useTemplateRef<HTMLElement>('img')
+ const panzoom = ref<PanzoomObject>()
+-const isSvgImage = computed(() => file.mimeType === 'image/svg+xml')
++const isSvgImage = computed(() => file.mimeType === 'image/svg+xml' && !file.isExtraRendered)
++let panzoomGeneration = 0
++let disposed = false
++
++const isCurrentImage = (event: Event) =>
++  Boolean(
++    !disposed &&
++    file.url &&
++    (event.target === unref(img) || unref(img)?.contains(event.target as Node)) &&
++    (event.target as HTMLImageElement).getAttribute('src') === file.url
++  )
++
++function imageLoaded(event: Event) {
++  if (isCurrentImage(event)) initPanzoom()
++}
++
++function imageFailed(event: Event) {
++  if (isCurrentImage(event)) emit('error', file)
++}
+ 
+ function sanitizeSvgElement(svg: SVGElement) {
+   DOMPurify.sanitize(svg, {
+@@ -123,10 +150,12 @@ const destroyPanzoom = () => {
+ }
+ 
+ const initPanzoom = async () => {
++  const generation = ++panzoomGeneration
+   destroyPanzoom()
+ 
+   // wait for next tick until image is rendered
+   await nextTick()
++  if (disposed || generation !== panzoomGeneration || !unref(img)) return
+ 
+   panzoom.value = Panzoom(unref(img), {
+     animate: false,
+@@ -171,6 +200,8 @@ onMounted(() => {
+ })
+ 
+ onBeforeUnmount(() => {
++  disposed = true
++  ++panzoomGeneration
+   destroyPanzoom()
+ 
+   eventBus.unsubscribe('app.preview.media.image.reset', resetEventToken)
+diff --git a/packages/web-app-preview/src/composables/extraFiles.ts b/packages/web-app-preview/src/composables/extraFiles.ts
+new file mode 100644
+index 0000000..c92f40e
+--- /dev/null
++++ b/packages/web-app-preview/src/composables/extraFiles.ts
+@@ -0,0 +1,48 @@
++import type { Resource } from '@opencloud-eu/web-client'
++import { mimeTypes } from '../mimeTypes'
++import {
++  conversionHint,
++  extensionOf,
++  fallbackExtensions,
++  mediaFallbackExtensions,
++  previewExtensions
++} from '../extra/formats.js'
++
++const renderedExtensions = new Set([...previewExtensions, ...fallbackExtensions, 'pdf'])
++const fallbackMedia = new Set(mediaFallbackExtensions)
++
++// Native images and supported media keep their existing decoder/player. The
++// extra formats use only a rendered image; their original stays on the server.
++export function isExtraRenderedFile(resource: Resource) {
++  const extension = extensionOf(resource)
++  return (
++    renderedExtensions.has(extension) ||
++    (fallbackMedia.has(extension) && !mimeTypes.includes(resource.mimeType?.toLowerCase()))
++  )
++}
++
++export function canPreviewFile(resource: Resource) {
++  if (resource.isFolder || (resource.type && resource.type !== 'file')) return false
++  try {
++    return Boolean(resource.canDownload?.())
++  } catch {
++    return false
++  }
++}
++
++export function extraPreviewHint(resource: Resource) {
++  return resource.isInVault
++    ? 'Encrypted files cannot be rendered on the server.'
++    : conversionHint(resource)
++}
++
++export function previewRevision(resource: Resource) {
++  return JSON.stringify([
++    resource.id,
++    resource.etag,
++    resource.name,
++    resource.mimeType,
++    resource.permissions,
++    resource.isInVault
++  ])
++}
+diff --git a/packages/web-app-preview/src/extra/AssetDetails.vue.d.ts b/packages/web-app-preview/src/extra/AssetDetails.vue.d.ts
+new file mode 100644
+index 0000000..773fa20
+--- /dev/null
++++ b/packages/web-app-preview/src/extra/AssetDetails.vue.d.ts
+@@ -0,0 +1,4 @@
++import type { DefineComponent } from 'vue'
++
++declare const component: DefineComponent
++export default component
+diff --git a/packages/web-app-preview/src/extra/formats.d.ts b/packages/web-app-preview/src/extra/formats.d.ts
+new file mode 100644
+index 0000000..84c4179
+--- /dev/null
++++ b/packages/web-app-preview/src/extra/formats.d.ts
+@@ -0,0 +1,12 @@
++import type { Resource } from '@opencloud-eu/web-client'
++
++export const previewExtensions: string[]
++export const officeExtensions: string[]
++export const fallbackExtensions: string[]
++export const mediaFallbackExtensions: string[]
++
++type FormatResource = Partial<Pick<Resource, 'name' | 'extension' | 'isInVault' | 'canDownload'>>
++
++export function extensionOf(resource?: FormatResource): string
++export function unavailableReason(resource?: FormatResource): string
++export function conversionHint(resource?: FormatResource): string
+diff --git a/packages/web-app-preview/src/extra/quicklook.d.ts b/packages/web-app-preview/src/extra/quicklook.d.ts
+new file mode 100644
+index 0000000..6c30cdd
+--- /dev/null
++++ b/packages/web-app-preview/src/extra/quicklook.d.ts
+@@ -0,0 +1,25 @@
++import type { Resource, SpaceResource } from '@opencloud-eu/web-client'
++import type { ResourcesStore, SpacesStore, useFileActions } from '@opencloud-eu/web-pkg'
++import type { Router } from 'vue-router'
++
++export const previewRouteName: 'preview-media'
++
++export function isQuickLookEligible(resource?: Resource, nativeMimeTypes?: string[]): boolean
++export function isEditableTarget(target?: Element): boolean
++export function visibleResources(
++  document: Document,
++  resources: Resource[],
++  nativeMimeTypes?: string[]
++): Resource[]
++
++export function createQuickLookController(options: {
++  router: Router
++  resourcesStore: ResourcesStore
++  spacesStore: SpacesStore
++  getEditorRouteOpts: ReturnType<typeof useFileActions>['getEditorRouteOpts']
++  nativeMimeTypes?: string[]
++  document?: Document
++}): {
++  open(space: SpaceResource, resource: Resource): ReturnType<Router['push']> | undefined
++  dispose(): void
++}
+diff --git a/packages/web-app-preview/src/helpers/types.ts b/packages/web-app-preview/src/helpers/types.ts
+index 3b63cef..bb49882 100644
+--- a/packages/web-app-preview/src/helpers/types.ts
++++ b/packages/web-app-preview/src/helpers/types.ts
+@@ -10,6 +10,8 @@ export type MediaFile = {
+   isImage: boolean
+   isAudio: boolean
+   isMotionPhoto: boolean
++  isExtraRendered?: boolean
++  previewRevision?: string
+   isLoading: boolean
+   isError: boolean
+   resource: Resource
+diff --git a/packages/web-app-preview/src/index.ts b/packages/web-app-preview/src/index.ts
+index 7ab58ac..1f55c29 100644
+--- a/packages/web-app-preview/src/index.ts
++++ b/packages/web-app-preview/src/index.ts
+@@ -9,12 +9,15 @@ import { useGettext } from 'vue3-gettext'
+ import { mimeTypes } from './mimeTypes'
+ import { appId } from './utils'
+ import { extensionPoints } from './extensionPoints'
++import { useExtraPreview } from './extra'
++import { previewExtensions } from './extra/formats.js'
+ 
+ const { default: App } = app
+ 
+ export default defineWebApplication({
+   setup() {
+     const { $gettext } = useGettext()
++    const extraPreview = useExtraPreview(mimeTypes)
+ 
+     const routes = [
+       {
+@@ -40,14 +43,23 @@ export default defineWebApplication({
+       name: $gettext('Preview'),
+       id: appId,
+       icon: 'eye',
+-      extensions: mimeTypes.map((mimeType) => ({
+-        mimeType,
+-        routeName,
+-        label: () => $gettext('Preview')
+-      }))
++      extensions: [
++        ...mimeTypes.map((mimeType) => ({
++          mimeType,
++          routeName,
++          label: () => $gettext('Preview')
++        })),
++        ...previewExtensions.map((extension) => ({
++          extension,
++          routeName,
++          hasPriority: true,
++          label: () => $gettext('Preview')
++        }))
++      ]
+     }
+ 
+     return {
++      ...extraPreview,
+       appInfo,
+       routes,
+       translations,
+diff --git a/packages/web-app-preview/tests/unit/app.spec.ts b/packages/web-app-preview/tests/unit/app.spec.ts
+index 5d3952d..c5248b2 100644
+--- a/packages/web-app-preview/tests/unit/app.spec.ts
++++ b/packages/web-app-preview/tests/unit/app.spec.ts
+@@ -127,7 +127,7 @@ describe('Preview app', () => {
+       const mediaFile = {
+         isImage: true,
+         mimeType: 'image/png',
+-        resource: mock<Resource>({ isInVault: false, hasPreview: () => false })
++        resource: { path: '/image.png', isInVault: false, hasPreview: () => false } as Resource
+       }
+       await (wrapper.vm as any).loadPreviewImage(mediaFile)
+ 
+@@ -145,7 +145,7 @@ describe('Preview app', () => {
+       const mediaFile = {
+         isImage: true,
+         mimeType: 'image/png',
+-        resource: mock<Resource>({ isInVault: true, hasPreview: () => false })
++        resource: { path: '/image.png', isInVault: true, hasPreview: () => false } as Resource
+       }
+       await (wrapper.vm as any).loadPreviewImage(mediaFile)
+ 
+@@ -162,7 +162,7 @@ describe('Preview app', () => {
+       const mediaFile = {
+         isImage: true,
+         mimeType: 'image/svg+xml',
+-        resource: mock<Resource>({ isInVault: false, hasPreview: () => true })
++        resource: { path: '/image.svg', isInVault: false, hasPreview: () => true } as Resource
+       }
+       await (wrapper.vm as any).loadPreviewImage(mediaFile)
+ 
+@@ -277,10 +277,10 @@ function createShallowMountWrapper({
+   currentFileContext?: Partial<FileContext>
+ } = {}) {
+   const mocks = defaultComponentMocks()
+-  mocks.$previewService.loadPreview.mockResolvedValue('')
++  mocks.$previewService.loadPreview.mockResolvedValue('blob:preview')
+   vi.mocked(queryItemAsString).mockImplementationOnce(() => '1')
+ 
+-  const getUrlForResource = vi.fn()
++  const getUrlForResource = vi.fn().mockResolvedValue('blob:original')
+   const revokeUrl = vi.fn()
+ 
+   return {
+diff --git a/packages/web-app-preview/tests/unit/components/MediaControls.spec.ts b/packages/web-app-preview/tests/unit/components/MediaControls.spec.ts
+index 1b7eb40..9715ff8 100644
+--- a/packages/web-app-preview/tests/unit/components/MediaControls.spec.ts
++++ b/packages/web-app-preview/tests/unit/components/MediaControls.spec.ts
+@@ -8,6 +8,7 @@ import {
+ import { mock } from 'vitest-mock-extended'
+ import { MediaFile } from '../../../src/helpers/types'
+ import { Resource, SpaceResource } from '@opencloud-eu/web-client'
++import { useSideBar } from '@opencloud-eu/web-pkg'
+ 
+ const selectors = {
+   controlsPrevious: '.preview-controls-previous',
+@@ -22,6 +23,12 @@ const selectors = {
+ }
+ 
+ describe('MediaControls component', () => {
++  it('opens the native Details sidebar from the information control', async () => {
++    const { wrapper } = getWrapper()
++    const sidebar = useSideBar()
++    await wrapper.get('[aria-label="Asset information"]').trigger('click')
++    expect(sidebar.openSideBarPanel).toHaveBeenCalledWith('details')
++  })
+   describe('previous button', () => {
+     it('exists', () => {
+       const { wrapper } = getWrapper()
+diff --git a/packages/web-app-preview/tests/unit/extra/gallery.spec.ts b/packages/web-app-preview/tests/unit/extra/gallery.spec.ts
+new file mode 100644
+index 0000000..2f61bf1
+--- /dev/null
++++ b/packages/web-app-preview/tests/unit/extra/gallery.spec.ts
+@@ -0,0 +1,268 @@
++import App from '../../../src/App.vue'
++import { flushPromises } from '@vue/test-utils'
++import { defaultComponentMocks, defaultPlugins, shallowMount } from '@opencloud-eu/web-test-helpers'
++import { FileContext } from '@opencloud-eu/web-pkg'
++import { Resource } from '@opencloud-eu/web-client'
++import { mock } from 'vitest-mock-extended'
++
++const { closeApp } = vi.hoisted(() => ({ closeApp: vi.fn() }))
++vi.mock('@opencloud-eu/web-pkg', async (importOriginal) => ({
++  ...(await importOriginal<any>()),
++  queryItemAsString: vi.fn(() => '1'),
++  createFileRouteOptions: vi.fn(() => ({ params: {}, query: {} })),
++  useAppNavigation: () => ({ closeApp })
++}))
++
++const resource = (name = 'artwork.ai', mimeType = 'application/postscript', changes = {}) =>
++  ({
++    id: '1',
++    fileId: '1',
++    name,
++    extension: name.split('.').pop(),
++    mimeType,
++    path: `/${name}`,
++    etag: 'revision-1',
++    permissions: 'RDNVW',
++    type: 'file',
++    canDownload: () => true,
++    hasPreview: () => true,
++    ...changes
++  }) as Resource
++
++function deferred() {
++  let resolve: (value: string) => void
++  const promise = new Promise<string>((done) => {
++    resolve = done
++  })
++  return { promise, resolve: (value: string) => resolve(value) }
++}
++
++function render(files = [resource()], loadPreview = vi.fn().mockResolvedValue('blob:preview')) {
++  const mocks = defaultComponentMocks()
++  mocks.$previewService.loadPreview.mockImplementation(loadPreview)
++  const getUrlForResource = vi.fn().mockResolvedValue('blob:original')
++  const revokeUrl = vi.fn()
++  const wrapper = shallowMount(App, {
++    props: {
++      currentFileContext: mock<FileContext>({ path: '/artwork.ai' }),
++      activeFiles: files,
++      isFolderLoading: false,
++      revokeUrl,
++      getUrlForResource,
++      loadFolderForFileContext: vi.fn()
++    },
++    global: { plugins: [...defaultPlugins()], mocks, provide: mocks }
++  })
++  return { wrapper, vm: wrapper.vm as any, loadPreview, getUrlForResource, revokeUrl }
++}
++
++describe('extra formats in the native gallery', () => {
++  it.each([
++    ['artwork.ai', 'application/pdf'],
++    ['layered.psd', 'application/octet-stream'],
++    ['font.woff2', 'font/woff2'],
++    ['source.nef', 'image/x-nikon-nef'],
++    ['document.pdf', 'application/pdf'],
++    ['document.docx', 'application/octet-stream'],
++    ['drawing.svgz', 'image/svg+xml'],
++    ['clip.mkv', 'video/x-matroska']
++  ])('renders %s with a fitted server preview', async (name, mimeType) => {
++    const { wrapper, vm, loadPreview, getUrlForResource } = render([resource(name, mimeType)])
++    await flushPromises()
++    expect(loadPreview).toHaveBeenCalledWith(
++      expect.objectContaining({
++        dimensions: [2048, 2048],
++        processor: 'fit'
++      }),
++      false,
++      false,
++      expect.any(AbortSignal)
++    )
++    expect(getUrlForResource).not.toHaveBeenCalled()
++    expect(vm.activeMediaFile).toMatchObject({
++      isExtraRendered: true,
++      isImage: true,
++      isVideo: false
++    })
++    expect(wrapper.find('photo-roll-stub').exists()).toBe(true)
++    expect(wrapper.find('media-controls-stub').exists()).toBe(true)
++    wrapper.unmount()
++  })
++
++  it('retains native image sizing', async () => {
++    const { wrapper, loadPreview, getUrlForResource, vm } = render([
++      resource('photo.jpg', 'image/jpeg')
++    ])
++    await flushPromises()
++    expect(loadPreview.mock.calls[0][0].dimensions).not.toEqual([2048, 2048])
++    expect(getUrlForResource).not.toHaveBeenCalled()
++    expect(vm.activeMediaFile.isExtraRendered).toBe(false)
++    wrapper.unmount()
++  })
++
++  it.each([
++    ['clip.mp4', 'video/mp4'],
++    ['audio.mp3', 'audio/mpeg']
++  ])('preserves native playback for %s', async (name, mimeType) => {
++    const { wrapper, loadPreview, getUrlForResource } = render([resource(name, mimeType)])
++    await flushPromises()
++    expect(loadPreview).not.toHaveBeenCalled()
++    expect(getUrlForResource).toHaveBeenCalled()
++    wrapper.unmount()
++  })
++
++  it.each([
++    ['native.svg', 'image/svg+xml', false],
++    ['photo.png', 'image/png', true]
++  ])('preserves native original handling for %s', async (name, mimeType, isInVault) => {
++    const { wrapper, loadPreview, getUrlForResource } = render([
++      resource(name, mimeType, { isInVault })
++    ])
++    await flushPromises()
++    expect(loadPreview).not.toHaveBeenCalled()
++    expect(getUrlForResource).toHaveBeenCalled()
++    wrapper.unmount()
++  })
++
++  it('does not fetch encrypted extra artwork', async () => {
++    const { wrapper, loadPreview, getUrlForResource, vm } = render([
++      resource('secret.ai', 'application/pdf', { isInVault: true })
++    ])
++    await flushPromises()
++    expect(loadPreview).not.toHaveBeenCalled()
++    expect(getUrlForResource).not.toHaveBeenCalled()
++    expect(vm.activeMediaFile.isError).toBe(true)
++    expect(wrapper.text()).toContain('Encrypted files cannot be rendered')
++    wrapper.unmount()
++  })
++
++  it('excludes files without download permission', async () => {
++    const { wrapper, loadPreview, getUrlForResource, vm } = render([
++      resource('private.ai', 'application/pdf', { canDownload: () => false })
++    ])
++    await flushPromises()
++    expect(vm.mediaFiles).toHaveLength(0)
++    expect(loadPreview).not.toHaveBeenCalled()
++    expect(getUrlForResource).not.toHaveBeenCalled()
++    wrapper.unmount()
++  })
++
++  it('excludes a folder with an artwork suffix', async () => {
++    const { wrapper, loadPreview, vm } = render([
++      resource('folder.ai', 'inode/directory', { type: 'folder', isFolder: true })
++    ])
++    await flushPromises()
++    expect(vm.mediaFiles).toHaveLength(0)
++    expect(loadPreview).not.toHaveBeenCalled()
++    wrapper.unmount()
++  })
++
++  it('shows conversion guidance with retry in the native error state', async () => {
++    const loadPreview = vi
++      .fn()
++      .mockRejectedValueOnce(new Error('failed'))
++      .mockResolvedValue('blob:retry')
++    const { wrapper, vm } = render([resource()], loadPreview)
++    await flushPromises()
++    expect(wrapper.text()).toContain('Failed to load')
++    expect(wrapper.text()).toContain('Create PDF Compatible File')
++    await wrapper.get('[arialabel="Retry preview"]').trigger('click')
++    await flushPromises()
++    expect(vm.activeMediaFile).toMatchObject({
++      isError: false,
++      isLoading: false,
++      url: 'blob:retry'
++    })
++    expect(loadPreview).toHaveBeenCalledTimes(2)
++    wrapper.unmount()
++  })
++
++  it('discards a preview that finishes after native navigation', async () => {
++    const first = deferred()
++    const loadPreview = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue('blob:second')
++    const { wrapper, vm, revokeUrl } = render(
++      [resource(), resource('next.psd', 'image/vnd.adobe.photoshop', { id: '2', fileId: '2' })],
++      loadPreview
++    )
++    await flushPromises()
++    vm.goToNext()
++    await flushPromises()
++    expect(loadPreview.mock.calls[0][3].aborted).toBe(true)
++    first.resolve('blob:stale')
++    await flushPromises()
++    expect(revokeUrl).toHaveBeenCalledWith('blob:stale')
++    expect(vm.activeMediaFile.url).toBe('blob:second')
++    wrapper.unmount()
++  })
++
++  it('cancels a pending preview when returning to a cached image', async () => {
++    const second = deferred()
++    const loadPreview = vi
++      .fn()
++      .mockResolvedValueOnce('blob:first')
++      .mockReturnValueOnce(second.promise)
++    const { wrapper, vm, revokeUrl } = render(
++      [resource(), resource('next.psd', 'image/vnd.adobe.photoshop', { id: '2', fileId: '2' })],
++      loadPreview
++    )
++    await flushPromises()
++    vm.goToNext()
++    await flushPromises()
++    vm.goToPrev()
++    await flushPromises()
++    expect(loadPreview.mock.calls[1][3].aborted).toBe(true)
++    second.resolve('blob:stale')
++    await flushPromises()
++    expect(vm.activeMediaFile.url).toBe('blob:first')
++    expect(loadPreview).toHaveBeenCalledTimes(2)
++    expect(revokeUrl).toHaveBeenCalledWith('blob:stale')
++    wrapper.unmount()
++  })
++
++  it('replaces a cached preview after the source revision changes', async () => {
++    const loadPreview = vi.fn().mockResolvedValueOnce('blob:first').mockResolvedValue('blob:new')
++    const { wrapper, vm, revokeUrl } = render([resource()], loadPreview)
++    await flushPromises()
++    await wrapper.setProps({
++      activeFiles: [resource('artwork.ai', 'application/postscript', { etag: 'revision-2' })]
++    })
++    await flushPromises()
++    expect(revokeUrl).toHaveBeenCalledWith('blob:first')
++    expect(loadPreview.mock.calls[1][0].resource.etag).toBe('revision-2')
++    expect(vm.activeMediaFile.url).toBe('blob:new')
++    wrapper.unmount()
++  })
++
++  it('releases a late URL after closing the native gallery', async () => {
++    const pending = deferred()
++    const loadPreview = vi.fn().mockReturnValue(pending.promise)
++    const { wrapper, revokeUrl } = render([resource()], loadPreview)
++    await flushPromises()
++    wrapper.unmount()
++    pending.resolve('blob:late')
++    await flushPromises()
++    expect(loadPreview.mock.calls[0][3].aborted).toBe(true)
++    expect(revokeUrl).toHaveBeenCalledWith('blob:late')
++  })
++
++  it('closes on Space from the gallery stage', async () => {
++    const { wrapper } = render()
++    await flushPromises()
++    await wrapper.get('[tabindex="-1"]').trigger('keydown', { key: ' ' })
++    expect(closeApp).toHaveBeenCalledOnce()
++    wrapper.unmount()
++  })
++
++  it.each(['input', 'textarea', 'button', 'video', 'audio'])(
++    'leaves Space to a focused %s',
++    async (tag) => {
++      const { wrapper } = render()
++      await flushPromises()
++      const control = document.createElement(tag)
++      wrapper.get('[tabindex="-1"]').element.append(control)
++      control.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
++      expect(closeApp).not.toHaveBeenCalled()
++      wrapper.unmount()
++    }
++  )
++})
+diff --git a/packages/web-app-preview/tests/unit/extra/image.spec.ts b/packages/web-app-preview/tests/unit/extra/image.spec.ts
+new file mode 100644
+index 0000000..9485aa3
+--- /dev/null
++++ b/packages/web-app-preview/tests/unit/extra/image.spec.ts
+@@ -0,0 +1,89 @@
++import MediaImage from '../../../src/components/Sources/MediaImage.vue'
++import { flushPromises } from '@vue/test-utils'
++import { defaultComponentMocks, defaultPlugins, mount } from '@opencloud-eu/web-test-helpers'
++import { MediaFile } from '../../../src/helpers/types'
++import Panzoom from '@panzoom/panzoom'
++
++vi.mock('@panzoom/panzoom', () => ({
++  default: vi.fn(() => ({
++    destroy: vi.fn(),
++    setStyle: vi.fn(),
++    getScale: () => 1,
++    getPan: () => ({ x: 0, y: 0 }),
++    zoomIn: vi.fn(),
++    zoomOut: vi.fn()
++  }))
++}))
++
++const file = (url = 'blob:first', changes = {}) =>
++  ({
++    id: '1',
++    name: 'drawing.svgz',
++    ext: 'svgz',
++    mimeType: 'image/svg+xml',
++    isImage: true,
++    isExtraRendered: true,
++    url,
++    resource: {},
++    ...changes
++  }) as MediaFile
++
++function render(mediaFile = file()) {
++  const mocks = defaultComponentMocks()
++  return mount(MediaImage, {
++    props: { file: mediaFile, currentImageRotation: 0 },
++    global: { plugins: [...defaultPlugins()], mocks, provide: mocks }
++  })
++}
++
++describe('rendered images in native image controls', () => {
++  it('treats rendered SVGZ as a raster preview', async () => {
++    const wrapper = render()
++    await flushPromises()
++    expect(wrapper.find('img').attributes('src')).toBe('blob:first')
++    expect(wrapper.find('inline-svg-stub').exists()).toBe(false)
++    wrapper.unmount()
++  })
++
++  it('reports an error for the current rendered image', async () => {
++    const wrapper = render()
++    await flushPromises()
++    await wrapper.get('img').trigger('error')
++    expect(wrapper.emitted('error')).toHaveLength(1)
++    wrapper.unmount()
++  })
++
++  it('ignores load and error events from a detached image', async () => {
++    const wrapper = render()
++    await flushPromises()
++    const previous = wrapper.get('img')
++    await wrapper.setProps({ file: file('blob:second', { id: '2' }) })
++    await flushPromises()
++    vi.mocked(Panzoom).mockClear()
++    await previous.trigger('error')
++    await previous.trigger('load')
++    await flushPromises()
++    expect(wrapper.emitted('error')).toBeUndefined()
++    expect(Panzoom).not.toHaveBeenCalled()
++    expect(wrapper.get('img').attributes('src')).toBe('blob:second')
++    wrapper.unmount()
++  })
++
++  it('ignores a detached image after returning to its cached URL', async () => {
++    const wrapper = render()
++    await flushPromises()
++    const previous = wrapper.get('img')
++    await wrapper.setProps({ file: file('blob:second', { id: '2' }) })
++    await flushPromises()
++    await wrapper.setProps({ file: file('blob:first') })
++    await flushPromises()
++    vi.mocked(Panzoom).mockClear()
++    await previous.trigger('error')
++    await previous.trigger('load')
++    await flushPromises()
++    expect(wrapper.emitted('error')).toBeUndefined()
++    expect(Panzoom).not.toHaveBeenCalled()
++    expect(wrapper.get('img').attributes('src')).toBe('blob:first')
++    wrapper.unmount()
++  })
++})

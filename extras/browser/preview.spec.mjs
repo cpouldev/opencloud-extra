@@ -1,75 +1,62 @@
 import { test, expect } from '@playwright/test'
+import { expectNativeGallery, expectRenderedImage, openAssetInformation, openFile, personalDrive, protectedLink, signIn } from './helpers.mjs'
 
-async function signIn(page) {
-  await page.goto('/')
-  await page.locator('#oc-login-username').fill('admin')
-  await page.locator('#oc-login-password').fill('extra-local-smoke-password')
-  await page.locator('button[type="submit"]').click()
-  await expect(page.locator('[data-test-resource-name="artwork.ai"]').first()).toBeVisible({ timeout: 45_000 })
-}
-
-async function openFile(page, name) {
-  await page.locator(`[data-test-resource-name="${name}"]`).first().click()
-}
-
-async function expectRenderedImage(page) {
-  const image = page.getByTestId('extra-preview-image')
-  await expect(image).toBeVisible()
-  await expect.poll(() => image.evaluate((element) => Math.max(element.naturalWidth, element.naturalHeight))).toBe(2048)
-  return image
-}
-
-test.beforeEach(async ({ page }) => {
-  await signIn(page)
-})
+test.beforeEach(async ({ page }) => { await signIn(page) })
 
 for (const name of ['artwork.ai', 'layered.psd', 'typeface.woff2']) {
-  test(`opens a rendered ${name} preview`, async ({ page }) => {
+  test(`opens ${name} in the native gallery without downloading its original`, async ({ page }) => {
     const originalDownloads = []
     const previewRequests = []
     page.on('request', (request) => {
       const url = new URL(request.url())
-      if (request.method() !== 'GET') return
-      if (url.pathname.endsWith(`/${name}`)) {
-        if (!url.searchParams.has('preview')) originalDownloads.push(request.url())
-        if (url.searchParams.get('x') === '2048') previewRequests.push(url)
-      }
+      if (request.method() !== 'GET' || !url.pathname.endsWith(`/${name}`)) return
+      if (!url.searchParams.has('preview')) originalDownloads.push(url.href)
+      if (url.searchParams.get('x') === '2048') previewRequests.push(url)
     })
     await openFile(page, name)
-    await expect(page).toHaveURL(/\/extra-preview\//)
-    await expectRenderedImage(page)
+    await expectRenderedImage(page, name)
+    await expect(page.locator('.photo-roll')).toBeVisible()
+    await expect(page.locator('.preview-controls-rotate-right')).toBeVisible()
     expect(previewRequests.length).toBeGreaterThan(0)
     expect(previewRequests[0].searchParams.get('processor')).toBe('fit')
     expect(originalDownloads).toEqual([])
-    await page.getByRole('button', { name: 'Close preview', exact: true }).click()
+    await page.locator('#app-top-bar-close').click()
     await expect(page.locator(`[data-test-resource-name="${name}"]`).first()).toBeVisible()
-    await expect(page.getByTestId('extra-preview')).toHaveCount(0)
+    await expect(page.locator('#preview')).toHaveCount(0)
   })
 }
 
-test('provides interactive view controls', async ({ page }) => {
+test('native gallery controls manipulate a rendered Illustrator preview', async ({ page }) => {
   await openFile(page, 'artwork.ai')
-  const image = await expectRenderedImage(page)
-  const zoom = page.getByTestId('extra-preview-zoom')
-  const fitted = await zoom.textContent()
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
-  await expect(zoom).not.toHaveText(fitted)
-  await page.getByRole('button', { name: 'Actual size', exact: true }).click()
-  await expect(zoom).toHaveText('100%')
-  const before = await image.evaluate((element) => getComputedStyle(element).transform)
-  const stage = page.getByTestId('extra-preview-stage')
-  const box = await stage.boundingBox()
+  const image = await expectRenderedImage(page, 'artwork.ai')
+  await expect.poll(() => image.evaluate((element) => element.style.transform)).toContain('scale(1)')
+  const fitted = await image.evaluate((element) => element.style.transform)
+  await page.locator('.preview-controls-image-zoom').click()
+  await expect.poll(() => image.evaluate((element) => element.style.transform)).not.toBe(fitted)
+  const beforePan = await image.evaluate((element) => element.style.transform)
+  const box = await page.locator('.stage_media').boundingBox()
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2 + 60, { steps: 4 })
   await page.mouse.up()
-  await expect.poll(() => image.evaluate((element) => getComputedStyle(element).transform)).not.toBe(before)
-  await page.getByRole('button', { name: 'Fit to window', exact: true }).click()
-  await expect(zoom).toHaveText(fitted)
-  await page.screenshot({ path: test.info().outputPath('rendered-preview.png') })
+  await expect.poll(() => image.evaluate((element) => element.style.transform)).not.toBe(beforePan)
+  await page.locator('.preview-controls-rotate-right').click()
+  await expect.poll(() => image.evaluate((element) => element.style.transform)).toContain('rotate(90deg)')
+  await page.locator('.preview-controls-image-reset').click()
+  await expect.poll(() => image.evaluate((element) => element.style.transform)).toBe(fitted)
+  await page.getByTestId('toggle-photo-roll').click()
+  await expect(page.locator('.photo-roll')).toHaveCount(0)
+  await page.getByTestId('toggle-photo-roll').click()
+  await expect(page.locator('.photo-roll')).toBeVisible()
+  await page.locator('.preview-controls-fullscreen').click()
+  await expect(page.locator('.stage')).toHaveClass(/lightbox/)
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === document.documentElement)).toBe(true)
+  await page.locator('.preview-controls-fullscreen').click()
+  await expect(page.locator('.stage')).not.toHaveClass(/lightbox/)
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true)
 })
 
-test('shows loading until the preview arrives', async ({ page }) => {
+test('native gallery shows loading while a rendered preview is pending', async ({ page }) => {
   let release
   const gate = new Promise((resolve) => { release = resolve })
   await page.route((url) => url.searchParams.get('preview') === '1' && url.searchParams.get('x') === '2048', async (route) => {
@@ -78,70 +65,72 @@ test('shows loading until the preview arrives', async ({ page }) => {
   })
   try {
     await openFile(page, 'layered.psd')
-    await expect(page.getByTestId('extra-preview-loading')).toBeVisible()
+    await expect(page.locator('#preview')).toBeVisible()
+    await expect(page.locator('.stage_media').getByRole('img', { name: 'Loading media file' })).toBeVisible()
   } finally {
     release()
   }
-  await expectRenderedImage(page)
-  await expect(page.getByTestId('extra-preview-loading')).toHaveCount(0)
+  await expectRenderedImage(page, 'layered.psd')
 })
 
-test('explains an unsupported Illustrator file', async ({ page }) => {
+test('native gallery explains an unsupported Illustrator file', async ({ page }) => {
   await openFile(page, 'broken.ai')
-  await expect(page.getByTestId('extra-preview-error')).toContainText('PDF Compatible')
-  await expect(page.getByTestId('extra-preview-image')).toHaveCount(0)
+  await expectNativeGallery(page, 'broken.ai')
+  await expect(page.locator('.stage_media')).toContainText('PDF Compatible')
+  await expect(page.locator('.stage_media img')).toHaveCount(0)
   const retried = page.waitForResponse((response) => {
     const url = new URL(response.url())
     return url.pathname.endsWith('/broken.ai') && url.searchParams.get('x') === '2048'
   })
   await page.getByRole('button', { name: 'Retry preview', exact: true }).click()
   expect((await retried).status()).toBe(404)
-  await expect(page.getByTestId('extra-preview-error')).toBeVisible()
+  await expect(page.locator('.stage_media')).toContainText('Failed to load')
 })
 
-test('keeps the native JPEG viewer', async ({ page }) => {
+test('native JPEG uses the same gallery with asset information in Details', async ({ page }) => {
   await openFile(page, 'native.jpg')
-  await expect(page).toHaveURL(/\/preview\//)
-  await expect(page.locator('img[alt="native.jpg"]')).toBeVisible()
-  await expect(page.getByTestId('extra-preview')).toHaveCount(0)
+  await expectNativeGallery(page, 'native.jpg')
+  await expect(page.locator('.stage_media img[alt="native.jpg"]')).toBeVisible()
+  const details = await openAssetInformation(page)
+  await expect(details).toContainText('JPEG')
+  await expect(details).toContainText('2,400 × 1,600 px')
+  await expect(page.locator('#sidebar-panel-details')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('native-jpeg-asset-details.png') })
 })
 
-test('keeps the native PDF viewer', async ({ page }) => {
+test('ordinary PDF clicks keep the native PDF viewer', async ({ page }) => {
   await openFile(page, 'native.pdf')
   await expect(page).toHaveURL(/\/pdf-viewer\//)
   await expect(page.locator('object.pdf-viewer')).toBeVisible()
-  await expect(page.getByTestId('extra-preview')).toHaveCount(0)
+  await expect(page.locator('#preview')).toHaveCount(0)
 })
 
-test('opens a protected public-link preview without signing in', async ({ browser, request }) => {
-  const linkPassword = 'Extra-Preview-Link-93!'
-  const headers = { Authorization: `Basic ${Buffer.from('admin:extra-local-smoke-password').toString('base64')}` }
-  const drivesResponse = await request.get('/graph/v1.0/me/drives', { headers })
-  expect(drivesResponse.ok()).toBe(true)
-  const drive = (await drivesResponse.json()).value.find((item) => item.driveType === 'personal')
-  const childrenResponse = await request.get('/graph/v1.0/me/drive/root/children', { headers })
-  expect(childrenResponse.ok()).toBe(true)
-  const file = (await childrenResponse.json()).value.find((item) => item.name === 'artwork.ai')
-  const linkResponse = await request.post(`/graph/v1beta1/drives/${encodeURIComponent(drive.id)}/items/${encodeURIComponent(file.id)}/createLink`, {
-    headers,
-    data: { type: 'view', password: linkPassword }
-  })
-  const linkBody = await linkResponse.text()
-  expect(linkResponse.ok(), linkBody).toBe(true)
-  const url = JSON.parse(linkBody).link.webUrl
-  expect(new URL(url).origin).toBe('https://localhost:9200')
+test('protected public file links open the native gallery without signing in', async ({ browser, request }) => {
+  const password = 'Extra-Preview-Link-93!'
+  const drive = await personalDrive(request)
+  const url = await protectedLink(request, drive, 'artwork.ai', password)
   const anonymous = await browser.newContext({ ignoreHTTPSErrors: true })
   try {
     const page = await anonymous.newPage()
     await page.goto(url)
-    await page.getByLabel('Password', { exact: true }).fill(linkPassword)
+    await page.getByLabel('Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
-    await expectRenderedImage(page)
-    await page.getByRole('button', { name: 'Asset information', exact: true }).click()
-    await expect(page.getByTestId('extra-asset-info')).toContainText('2,400 × 1,600 pt')
-    await expect(page.getByRole('button', { name: 'Previous file', exact: true })).toBeDisabled()
-    await expect(page.getByRole('button', { name: 'Next file', exact: true })).toBeDisabled()
+    await expectRenderedImage(page, 'artwork.ai')
+    const details = await openAssetInformation(page)
+    await expect(details).toContainText('2,400 × 1,600 pt')
+    await expect(page.locator('.preview-controls-action-count')).toContainText('1 of 1')
   } finally {
     await anonymous.close()
   }
+})
+
+test('existing custom-preview links redirect into the native gallery', async ({ page }) => {
+  await openFile(page, 'layered.psd')
+  await expectRenderedImage(page, 'layered.psd')
+  const legacy = new URL(page.url())
+  legacy.pathname = legacy.pathname.replace('/preview/', '/extra-preview/')
+  await page.goto(legacy.href)
+  await expectRenderedImage(page, 'layered.psd')
+  await page.locator('#app-top-bar-close').click()
+  await expect(page.locator('[data-test-resource-name="layered.psd"]').first()).toBeVisible()
 })

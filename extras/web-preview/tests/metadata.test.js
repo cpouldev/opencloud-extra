@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  fileFacts, formatDuration, formatFileSize, loadMetadata, MAX_METADATA_BYTES,
+  formatDuration, loadMetadata, MAX_METADATA_BYTES,
   parseMetadata, sourceFacts
 } from '../src/metadata.js'
 
@@ -103,23 +103,7 @@ describe('source information validation', () => {
   })
 })
 
-describe('file information formatting', () => {
-  for (const { name, value, expected } of [
-    { name: 'empty file', value: 0, expected: '0 B' },
-    { name: 'bytes below one KiB', value: 1023, expected: '1,023 B' },
-    { name: 'exactly one KiB', value: 1024, expected: '1 KiB' },
-    { name: 'fractional KiB', value: 1536, expected: '1.5 KiB' },
-    { name: 'WebDAV byte string', value: '2097152', expected: '2 MiB' },
-    { name: 'missing size', value: undefined, expected: '' },
-    { name: 'empty size string', value: '', expected: '' },
-    { name: 'negative size', value: -1, expected: '' },
-    { name: 'nonintegral bytes', value: 1.5, expected: '' }
-  ]) {
-    it(`formats ${name}`, () => {
-      expect(formatFileSize(value, 'en-US')).toBe(expected)
-    })
-  }
-
+describe('source information formatting', () => {
   for (const { name, value, expected } of [
     { name: 'zero duration', value: 0, expected: '0 s' },
     { name: 'subsecond duration', value: .25, expected: '0.25 s' },
@@ -135,29 +119,6 @@ describe('file information formatting', () => {
       expect(formatDuration(value, 'en-US')).toBe(expected)
     })
   }
-
-  it('formats ordinary resource facts without guessing source properties', () => {
-    const facts = fileFacts({
-      name: 'poster.ai', size: '1536', mimeType: 'application/postscript',
-      mdate: '2026-09-20T10:30:00Z', image: { width: 2048, height: 1024 }
-    }, { locale: 'en-US', timeZone: 'UTC' })
-    expect(facts).toEqual([
-      { key: 'name', label: 'Name', value: 'poster.ai' },
-      { key: 'size', label: 'File size', value: '1.5 KiB' },
-      { key: 'type', label: 'Type', value: 'application/postscript' },
-      { key: 'modified', label: 'Modified', value: 'Sep 20, 2026, 10:30 AM', dateTime: '2026-09-20T10:30:00.000Z' }
-    ])
-  })
-
-  it('omits missing resource facts', () => {
-    expect(fileFacts({ name: 'untitled', mdate: 'invalid', size: -1 })).toEqual([
-      { key: 'name', label: 'Name', value: 'untitled' }
-    ])
-  })
-
-  it('falls back to the resource extension for its type', () => {
-    expect(fileFacts({ extension: '.psd' })).toContainEqual({ key: 'type', label: 'Type', value: 'PSD file' })
-  })
 
   it('labels source pixel dimensions separately from page points', () => {
     const facts = sourceFacts(parseMetadata(JSON.stringify({

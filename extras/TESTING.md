@@ -42,8 +42,9 @@ test_strategy:
       what: Exhaustive coverage of every camera model and every proprietary file version
 ```
 
-Gate 0 is off: this change includes user-visible logic. Gate 3 is off: there is
-no new UI. Gates 4 and 6 are deliberately excluded as described above.
+For the provider and release-automation scope, Gate 0 is off because it includes
+user-visible logic and Gate 3 is off because it has no UI. Gates 4 and 6 are
+deliberately excluded as described above. Web validation is covered below.
 
 ## Cases covered
 
@@ -73,11 +74,11 @@ file extension is listed.
 
 ```yaml
 test_strategy:
-  artifact: Bundled extra preview app and 2048-pixel rendering
-  rationale: Clicking an extra file now crosses the web app, authenticated preview API, converter and image display boundaries.
+  artifact: Native gallery extra formats and 2048-pixel rendering
+  rationale: Clicking an extra file crosses the native gallery, authenticated preview API, converter and image display boundaries.
   criticality: MEDIUM-HIGH
   selected_types:
-    - rationale: Render-size selection, zoom bounds and loading/error transitions have branching behavior.
+    - rationale: Render-size selection, native controls and loading/error transitions have branching behavior.
       type: unit
       size: small
       framework: go test, Python unittest and web app tests
@@ -89,13 +90,13 @@ test_strategy:
       framework: authenticated preview smoke
       dependencies: [built Docker image, converter tools]
       gate: Gate 2
-    - rationale: File-handler registration and host SDK loading must be verified by opening actual files in OpenCloud Web.
+    - rationale: Native file-handler registration and gallery integration must be verified by opening actual files in OpenCloud Web.
       type: e2e
       size: large
       framework: Playwright
       dependencies: [Chromium, disposable OpenCloud container]
       gate: Gate 3
-    - rationale: The app must be embedded in the image and automatically discovered with an existing data directory.
+    - rationale: The patched native gallery must be embedded in the image and available with an existing data directory.
       type: smoke
       size: large
       framework: container and browser smoke
@@ -116,17 +117,17 @@ test_strategy:
 Gate 0 is off because user-visible behavior changes. Gates 1, 2, 3 and 5 are on.
 Gates 4 and 6 are off for the reasons above.
 
-- AC-1: Open AI, PSD and a font from the file list in the extra preview app;
-  ordinary JPEG and PDF retain their existing viewers.
-- AC-2: Show loading and conversion failure states; support zoom, fit, pan and
-  closing back to files without a stale image.
+- AC-1: Open AI, PSD and a font from the file list in the native gallery;
+  ordinary JPEG uses the same gallery and PDF retains its default viewer.
+- AC-2: Show loading and conversion failure states; support native zoom, pan,
+  rotation, reset and closing back to files without a stale image.
 - AC-3: Request a fitted 2048-pixel preview through the existing authenticated
   endpoint; retain denial of anonymous access to private files; open a public
   link in a separate unauthenticated browser context.
 - AC-4: Check requested size boundaries around 1024 and 2048; render real output
   larger than 1024; retain small grid dimensions and repeatable cached output.
-- AC-5: Discover the embedded application in the built image's web config and
-  load its module through the actual Web runtime on both image architectures.
+- AC-5: Load the patched native gallery through the actual Web runtime on both
+  image architectures, without a separate extra-preview application.
 
 ## Quick Look and asset information
 
@@ -174,13 +175,41 @@ test_strategy:
 
 - Space opens the selected file in table and tile views; Space/Escape closes;
   input fields, dialogs, modified shortcuts and unrelated routes are untouched.
-- Previous/next follow displayed order, exclude folders and inaccessible files,
-  disable at boundaries and never escape a public share. Shift+arrows still pan.
+- Previous/next follow the native gallery order, exclude folders and inaccessible
+  files, and wrap within that folder or public share.
 - Navigating during a pending preview or metadata request cannot display the
   previous file's results; URLs and pending requests are released on close.
 - Metadata uses source pixel dimensions or explicitly labeled document points,
   preserves CMYK/profile information, and reports real codec/duration/font data.
 - Missing fields remain absent; malformed, oversized and unsafe decoder output
-  fails independently of the image preview. No original bytes reach the browser.
+  fails independently of the image preview. Metadata extraction and rendered
+  extra previews do not send original file bytes to the browser.
 - Private metadata stays inaccessible without permission, including after cache
   population; source revision changes invalidate metadata independently of images.
+
+## Native gallery integration
+
+The native gallery replaces the separate rendered viewer. Gates 1, 2, 3 and 5
+remain on: filename classification and keyboard guards need unit tests; native
+Web components and Details injection need integration coverage; actual gallery
+controls, public links and mobile layouts need browser checks; both native
+architecture images gate release. Gate 0 is off because behavior changes. Gate 4
+is off because Web and metadata ship together. Gate 6 is off because these
+changes concern finite format classes and UI state transitions. Existing decoder
+and metadata-schema suites remain the evidence for their unchanged boundaries.
+
+- Extra AI/PSD/font files open in native `preview-media`, with the native photo
+  roll and bottom controls; the old custom viewer is absent.
+- JPEG uses that same gallery; PDF/Office default editors and media controls keep
+  working. Rendered extras never cause original-file downloads in the browser.
+- Native zoom, pan, rotation, reset, fullscreen and photo-roll selection work on
+  rendered images. Folder order and return context follow native gallery rules.
+- Space opens from table/tile selection and closes the gallery while yielding
+  to inputs, dialogs, modified/repeated keys and native media controls.
+- Native Details displays source properties for its currently selected file,
+  loads on demand and cannot show stale facts after navigation or closure.
+- Failed conversions leave native navigation usable and offer useful recovery.
+- Private files, password-protected public files/folders and narrow screens use
+  the same native interface. Public navigation cannot leave its shared scope.
+- Source patch application is pinned and fails on drift; both published images
+  contain the modified native Web assets and no separate extra-preview app.

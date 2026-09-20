@@ -6,14 +6,13 @@ const file = (id, changes = {}) => ({
   id, fileId: id, name: `${id}.ai`, extension: 'ai', type: 'file',
   canDownload: () => true, ...changes
 })
+const nativeMimeTypes = ['image/jpeg', 'image/png', 'video/mp4', 'audio/flac']
 const folderRoute = { name: 'files-spaces-generic', params: { driveAliasAndItem: 'personal/me' }, query: {} }
 const publicFolderRoute = { name: 'files-public-link', params: { driveAliasAndItem: 'public/public-token' }, query: {} }
 let controller
 let router
 let resourcesStore
 let spacesStore
-let session
-let guard
 
 function addRows(ids, view = 'table') {
   const container = document.createElement(view === 'table' ? 'table' : 'div')
@@ -36,7 +35,7 @@ function key(target = document.body, changes = {}) {
 
 function start() {
   controller = createQuickLookController({
-    router, resourcesStore, spacesStore, session,
+    router, resourcesStore, spacesStore, nativeMimeTypes,
     getEditorRouteOpts: (name, space, resource, shareId) => ({
       name, params: { driveAliasAndItem: `${space.driveAlias}/${resource.name}` },
       query: { fileId: resource.fileId, ...(shareId && { shareId }), contextRouteName: router.currentRoute.value.name }
@@ -45,11 +44,9 @@ function start() {
 }
 
 beforeEach(() => {
-  session = ref(null)
   router = {
     currentRoute: ref(folderRoute),
-    push: vi.fn().mockResolvedValue(undefined),
-    beforeEach: vi.fn((callback) => { guard = callback; return vi.fn() })
+    push: vi.fn().mockResolvedValue(undefined)
   }
   resourcesStore = {
     currentFolder: { id: 'folder' },
@@ -68,11 +65,14 @@ afterEach(() => {
 describe('Quick Look eligibility', () => {
   it.each([
     { name: 'Illustrator artwork', resource: file('a'), expected: true },
-    { name: 'native JPEG', resource: file('a', { extension: 'jpg' }), expected: true },
-    { name: 'native PDF', resource: file('a', { extension: 'pdf' }), expected: true },
+    { name: 'native JPEG', resource: file('a', { extension: 'jpg', mimeType: 'image/jpeg' }), expected: true },
+    { name: 'PDF rendered page', resource: file('a', { extension: 'pdf' }), expected: true },
     { name: 'video frame', resource: file('a', { extension: 'mp4' }), expected: true },
     { name: 'audio artwork', resource: file('a', { extension: 'flac' }), expected: true },
     { name: 'Office first page', resource: file('a', { extension: 'docx' }), expected: true },
+    { name: 'native MIME-only image', resource: file('a', { extension: '', name: 'cover', mimeType: 'image/png' }), expected: true },
+    { name: 'unknown native MIME', resource: file('a', { extension: 'jpg', mimeType: 'application/octet-stream' }), expected: false },
+    { name: 'broken permission context', resource: file('a', { canDownload: () => { throw new Error('not loaded') } }), expected: false },
     { name: 'unknown original', resource: file('a', { extension: 'dat' }), expected: false },
     { name: 'excluded EPS', resource: file('a', { extension: 'eps' }), expected: false },
     { name: 'folder', resource: file('a', { isFolder: true }), expected: false },
@@ -84,12 +84,12 @@ describe('Quick Look eligibility', () => {
     { name: 'processing file', resource: file('a', { processing: true }), expected: false },
     { name: 'disabled file', resource: file('a', { disabled: true }), expected: false }
   ])('handles $name', ({ resource, expected }) => {
-    expect(isQuickLookEligible(resource)).toBe(expected)
+    expect(isQuickLookEligible(resource, nativeMimeTypes)).toBe(expected)
   })
 })
 
-describe('displayed resource snapshot', () => {
-  it.each(['table', 'tiles'])('keeps %s order rather than store order', (view) => {
+describe('visible resource eligibility', () => {
+  it.each(['table', 'tiles'])('reads only rendered %s rows', (view) => {
     addRows(['c', 'a'], view)
     expect(visibleResources(document, resourcesStore.activeResources).map(({ id }) => id)).toEqual(['c', 'a'])
   })
@@ -157,7 +157,7 @@ describe('Space opener', () => {
     const event = key()
     document.removeEventListener('keydown', toggle)
     expect(router.push).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'extra-preview-file', params: { driveAliasAndItem: 'personal/me/a.ai' }
+      name: 'preview-media', params: { driveAliasAndItem: 'personal/me/a.ai' }
     }))
     expect(event.defaultPrevented).toBe(true)
     expect(toggle).not.toHaveBeenCalled()
@@ -224,7 +224,7 @@ describe('Space opener', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
-  it.each(['runtime.login', 'files-search', 'files-trash', 'extra-preview-file'])('ignores route %s', (name) => {
+  it.each(['runtime.login', 'files-search', 'files-trash', 'preview-media'])('ignores route %s', (name) => {
     router.currentRoute.value = { name }
     addRows(['a'])
     start()
@@ -267,39 +267,33 @@ describe('Space opener', () => {
   })
 })
 
-describe('navigation capture', () => {
-  it('captures the current page before the host replaces its resource store', () => {
-    addRows(['c', 'a'])
-    start()
-    guard({ name: 'extra-preview-file', params: { driveAliasAndItem: 'personal/me/a.ai' } }, folderRoute)
-    resourcesStore.activeResources = [file('a')]
-    expect(session.value.entries.map(({ id }) => id)).toEqual(['c', 'a'])
-  })
 
-  it('keeps every public entry within the current public token', () => {
-    router.currentRoute.value = publicFolderRoute
-    spacesStore.currentSpace = { id: 'public-token', driveType: 'public', driveAlias: 'public/public-token' }
-    addRows(['a', 'c'])
-    start()
-    guard({ name: 'extra-preview-file', params: { driveAliasAndItem: 'public/public-token/a.ai' } }, publicFolderRoute)
-    expect(session.value.entries.map(({ route }) => route.params.driveAliasAndItem)).toEqual([
-      'public/public-token/a.ai', 'public/public-token/c.ai'
-    ])
-    expect(session.value.entries.every(({ route }) => route.query.contextRouteName === 'files-public-link')).toBe(true)
-  })
-
-  it('clears a private snapshot when leaving the preview', () => {
+describe('native gallery ownership', () => {
+  it('leaves native navigation keys untouched', () => {
     addRows(['a', 'b'])
     start()
-    guard({ name: 'extra-preview-file', params: { driveAliasAndItem: 'personal/me/a.ai' } }, folderRoute)
-    guard({ name: 'runtime.login' }, { name: 'extra-preview-file' })
-    expect(session.value).toBeNull()
+    for (const name of ['ArrowLeft', 'ArrowRight', 'Escape']) {
+      expect(key(document.body, { key: name }).defaultPrevented).toBe(false)
+    }
+    expect(router.push).not.toHaveBeenCalled()
   })
 
-  it('does not reuse folder entries for an unrelated direct file route', () => {
-    addRows(['a', 'b'])
+  it('leaves gallery Space handling to the native root', () => {
+    router.currentRoute.value = { name: 'preview-media' }
+    addRows(['a'])
     start()
-    guard({ name: 'extra-preview-file', params: { driveAliasAndItem: 'public/other/a.ai' } }, folderRoute)
-    expect(session.value).toBeNull()
+    expect(key().defaultPrevented).toBe(false)
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('preserves the share identifier for authenticated share routes', () => {
+    spacesStore.currentSpace = { id: 'share-id', driveType: 'share', driveAlias: 'share/share-id' }
+    addRows(['a'])
+    start()
+    key()
+    expect(router.push).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'preview-media',
+      query: expect.objectContaining({ shareId: 'share-id', contextRouteName: 'files-spaces-generic' })
+    }))
   })
 })

@@ -179,8 +179,10 @@ def seed_browser_files(root, dav):
             raise RuntimeError(f"{name}: upload returned {code}: {body[:400]!r}")
     code, body, _ = request("/config.json", authenticated=False)
     config = json.loads(body) if code == 200 else {}
-    if not any(app.get("id") == "extra-preview" for app in config.get("external_apps", [])):
-        raise RuntimeError("Built-in extra preview app is missing from web configuration")
+    if "preview" not in config.get("apps", []):
+        raise RuntimeError("Native gallery is missing from web configuration")
+    if any(app.get("id") == "extra-preview" for app in config.get("external_apps", [])):
+        raise RuntimeError("Obsolete standalone preview app is still enabled")
 
 
 def main():
