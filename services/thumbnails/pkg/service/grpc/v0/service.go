@@ -16,6 +16,7 @@ import (
 	merrors "go-micro.dev/v4/errors"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/opencloud-eu/reva/v2/pkg/bytesize"
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
@@ -39,6 +40,10 @@ func NewService(opts ...Option) decorators.DecoratedService {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("resolutions not configured correctly")
 	}
+	maxInputSize, err := bytesize.Parse(options.Config.Thumbnail.MaxInputImageFileSize)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("maximum thumbnail input size not configured correctly")
+	}
 	svc := Thumbnail{
 		serviceID: options.Config.GRPC.Namespace + "." + options.Config.Service.Name,
 		manager: thumbnail.NewSimpleManager(
@@ -56,6 +61,9 @@ func NewService(opts ...Option) decorators.DecoratedService {
 			TxtFontFileMap: options.Config.Thumbnail.FontMapFile,
 			MaxInputWidth:  options.Config.Thumbnail.MaxInputWidth,
 			MaxInputHeight: options.Config.Thumbnail.MaxInputHeight,
+			MaxInputBytes:  maxInputSize.Bytes(),
+			ExtraRenderer:  options.Config.Thumbnail.ExtraRenderer,
+			ExtraTimeout:   options.Config.Thumbnail.ExtraTimeout,
 		},
 		dataEndpoint:   options.Config.Thumbnail.DataEndpoint,
 		transferSecret: options.Config.Thumbnail.TransferSecret,
@@ -82,6 +90,9 @@ type PreprocessorOpts struct {
 	TxtFontFileMap string
 	MaxInputWidth  int
 	MaxInputHeight int
+	MaxInputBytes  uint64
+	ExtraRenderer  string
+	ExtraTimeout   time.Duration
 }
 
 // GetThumbnail retrieves a thumbnail for an image
@@ -170,11 +181,15 @@ func (g Thumbnail) handleCS3Source(ctx context.Context, req *thumbnailssvc.GetTh
 
 	defer r.Close()
 	ppOpts := map[string]any{
+		"context":        ctx,
+		"extraRenderer":  g.preprocessorOpts.ExtraRenderer,
+		"extraTimeout":   g.preprocessorOpts.ExtraTimeout,
+		"maxInputBytes":  g.preprocessorOpts.MaxInputBytes,
 		"fontFileMap":    g.preprocessorOpts.TxtFontFileMap,
 		"maxInputWidth":  g.preprocessorOpts.MaxInputWidth,
 		"maxInputHeight": g.preprocessorOpts.MaxInputHeight,
 	}
-	pp := preprocessor.ForType(sRes.GetInfo().GetMimeType(), ppOpts)
+	pp := preprocessor.ForFile(sRes.GetInfo().GetMimeType(), sRes.GetInfo().GetName(), ppOpts)
 	img, err := pp.Convert(r)
 	if errors.Is(err, terrors.ErrImageTooLarge) {
 		return "", merrors.Forbidden(g.serviceID, "%s", err.Error())
@@ -271,11 +286,15 @@ func (g Thumbnail) handleWebdavSource(ctx context.Context, req *thumbnailssvc.Ge
 	}
 	defer r.Close()
 	ppOpts := map[string]any{
+		"context":        ctx,
+		"extraRenderer":  g.preprocessorOpts.ExtraRenderer,
+		"extraTimeout":   g.preprocessorOpts.ExtraTimeout,
+		"maxInputBytes":  g.preprocessorOpts.MaxInputBytes,
 		"fontFileMap":    g.preprocessorOpts.TxtFontFileMap,
 		"maxInputWidth":  g.preprocessorOpts.MaxInputWidth,
 		"maxInputHeight": g.preprocessorOpts.MaxInputHeight,
 	}
-	pp := preprocessor.ForType(sRes.GetInfo().GetMimeType(), ppOpts)
+	pp := preprocessor.ForFile(sRes.GetInfo().GetMimeType(), sRes.GetInfo().GetName(), ppOpts)
 	img, err := pp.Convert(r)
 	if errors.Is(err, terrors.ErrImageTooLarge) {
 		return "", merrors.Forbidden(g.serviceID, "%s", err.Error())
@@ -338,7 +357,7 @@ func (g Thumbnail) stat(path, auth string) (*provider.StatResponse, error) {
 		g.logger.Error().Msg("resource info is missing checksum")
 		return nil, merrors.NotFound(g.serviceID, "resource info is missing a checksum")
 	}
-	if !thumbnail.IsMimeTypeSupported(rsp.GetInfo().GetMimeType()) {
+	if !thumbnail.IsFileTypeSupported(rsp.GetInfo().GetMimeType(), rsp.GetInfo().GetName()) {
 		return nil, merrors.NotFound(g.serviceID, "Unsupported file type")
 	}
 	return rsp, nil

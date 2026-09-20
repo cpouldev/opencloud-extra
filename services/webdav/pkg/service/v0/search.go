@@ -222,7 +222,7 @@ func matchToPropResponse(ctx context.Context, davPrefix, publicURL string, match
 	propstatOK.Prop = append(propstatOK.Prop, prop.Escaped("oc:permissions", match.Entity.Permissions))
 	propstatOK.Prop = append(propstatOK.Prop, prop.Escaped("oc:highlights", match.Entity.Highlights))
 	propstatOK.Prop = append(propstatOK.Prop, prop.Escaped("d:getcontenttype", match.Entity.MimeType))
-	_, isSupportedMimeType := thumbnail.SupportedMimeTypes[match.Entity.MimeType]
+	isSupportedMimeType := thumbnail.IsFileTypeSupported(match.Entity.MimeType, match.Entity.Name)
 	if isSupportedMimeType {
 		propstatOK.Prop = append(propstatOK.Prop, prop.Escaped("oc:has-preview", "1"))
 	} else {
@@ -270,7 +270,7 @@ func matchToPropResponse(ctx context.Context, davPrefix, publicURL string, match
 }
 
 func hasPreview(md *provider.ResourceInfo, appendToOK func(p ...prop.PropertyXML)) {
-	_, match := thumbnail.SupportedMimeTypes[md.MimeType]
+	match := thumbnail.IsFileTypeSupported(md.GetMimeType(), md.GetName())
 	if match {
 		appendToOK(prop.Escaped("oc:has-preview", "1"))
 	} else {

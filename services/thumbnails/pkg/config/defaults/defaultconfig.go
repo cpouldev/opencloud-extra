@@ -3,6 +3,7 @@ package defaults
 import (
 	"path"
 	"strings"
+	"time"
 
 	"github.com/opencloud-eu/opencloud/pkg/config/defaults"
 	"github.com/opencloud-eu/opencloud/pkg/shared"
@@ -58,6 +59,8 @@ func DefaultConfig() *config.Config {
 			MaxInputWidth:         7680,
 			MaxInputHeight:        7680,
 			MaxInputImageFileSize: "50MB",
+			ExtraRenderer:         "opencloud-extra-thumbnail",
+			ExtraTimeout:          90 * time.Second,
 		},
 	}
 }

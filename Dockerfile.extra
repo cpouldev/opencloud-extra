@@ -1,0 +1,104 @@
+# syntax=docker/dockerfile:1
+# A complete downstream source build, including the converters used by thumbnails.
+# Build only the converter runtime with --target runtime for fast integration tests.
+
+FROM alpine:3.24 AS runtime-deps
+
+RUN apk add --no-cache \
+      attr bash ca-certificates curl inotify-tools libc6-compat mailcap patch tree \
+      python3 py3-pillow py3-fonttools py3-brotli \
+      ffmpeg \
+      vips vips-tools vips-heif vips-jxl vips-magick vips-poppler \
+      libheif-libde265 libheif-dav1d libheif-aom libheif-x265 \
+      imagemagick imagemagick-heic imagemagick-jpeg imagemagick-jp2 \
+      imagemagick-jxl imagemagick-openexr imagemagick-raw imagemagick-svg \
+      imagemagick-tiff imagemagick-webp \
+      poppler-utils libreoffice-writer libreoffice-calc libreoffice-impress \
+      libreoffice-draw libraw-tools libarchive-tools \
+      font-dejavu font-noto font-liberation font-carlito && \
+    echo 'hosts: files dns' > /etc/nsswitch.conf && \
+    addgroup -g 1000 -S opencloud-group && \
+    adduser -S -G opencloud-group -u 1000 -h /var/lib/opencloud opencloud-user && \
+    mkdir -p /var/lib/opencloud/web/assets/apps /etc/opencloud && \
+    chown -R opencloud-user:opencloud-group /var/lib/opencloud /etc/opencloud && \
+    chmod -R 751 /var/lib/opencloud /etc/opencloud
+
+COPY extras/container/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+
+# Match the official image's service identity and persistent directories.
+USER 1000:1000
+WORKDIR /var/lib/opencloud
+
+FROM runtime-deps AS runtime
+
+COPY --chmod=755 extras/thumbnailer.py /usr/local/bin/opencloud-extra-thumbnail
+COPY --chmod=755 extras/container/smoke.py /usr/local/bin/opencloud-extra-smoke
+
+# Bounds also apply to subprocesses started by the renderer. Go owns the overall
+# deadline and the request semaphore; the renderer imposes per-process limits.
+ENV THUMBNAILS_EXTRA_RENDERER=/usr/local/bin/opencloud-extra-thumbnail \
+    THUMBNAILS_EXTRA_TIMEOUT=90s \
+    THUMBNAILS_MAX_INPUT_IMAGE_FILE_SIZE=1GB \
+    THUMBNAILS_MAX_CONCURRENT_REQUESTS=2 \
+    VIPS_CONCURRENCY=2 \
+    MAGICK_THREAD_LIMIT=2 \
+    OMP_NUM_THREADS=2 \
+    OPENBLAS_NUM_THREADS=1 \
+    SAL_USE_VCLPLUGIN=svp \
+    PYTHONDONTWRITEBYTECODE=1
+
+FROM quay.io/opencloudeu/nodejs-ci:24 AS generate
+
+WORKDIR /opencloud
+COPY . /opencloud
+# The build context excludes .git. The web-assets make target uses git clean, so
+# track its checked-in theme files in a temporary repository before generation.
+RUN git -c init.defaultBranch=build init && \
+    git add -f services/web/assets && \
+    make node-generate-prod
+
+FROM quay.io/opencloudeu/golang-ci:1.25 AS build
+
+ARG TARGETARCH
+ARG VERSION
+ARG REVISION=unknown
+ARG EDITION=stable
+
+COPY --from=generate /opencloud /opencloud
+WORKDIR /opencloud
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make go-generate && \
+    make -C opencloud release-linux-docker-${TARGETARCH} \
+      ENABLE_VIPS=true DIST=/dist VERSION="${VERSION}" STRING="${REVISION}" \
+      EDITION="${EDITION}"
+
+FROM build AS go-test
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go test ./services/thumbnails/... ./services/graph/pkg/service/v0 ./services/webdav/pkg/service/v0 && \
+    go test -tags enable_vips ./services/thumbnails/...
+
+FROM runtime AS final
+
+ARG TARGETARCH
+ARG VERSION=dev
+ARG REVISION=unknown
+
+LABEL org.opencontainers.image.title="OpenCloud Extra" \
+      org.opencontainers.image.description="OpenCloud with additional thumbnail formats" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.documentation="https://github.com/cpouldev/opencloud-extra" \
+      org.opencontainers.image.source="https://github.com/cpouldev/opencloud-extra" \
+      org.opencontainers.image.url="https://hub.docker.com/r/cpoul/opencloud-extra" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
+COPY --from=build /dist/binaries/opencloud-linux-${TARGETARCH} /usr/bin/opencloud
+COPY LICENSE /usr/share/licenses/opencloud-extra/LICENSE
+
+VOLUME ["/var/lib/opencloud", "/etc/opencloud"]
+EXPOSE 9200/tcp
+ENTRYPOINT ["/usr/bin/opencloud"]
+CMD ["server"]

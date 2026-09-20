@@ -36,7 +36,7 @@ func setDriveItemThumbnails(item *libregraph.DriveItem, res *provider.ResourceIn
 
 // previewThumbnailSet returns nil when the thumbnailer cannot render the resource.
 func previewThumbnailSet(res *provider.ResourceInfo, baseURL string) *libregraph.ThumbnailSet {
-	if !thumbnail.IsMimeTypeSupported(res.GetMimeType()) {
+	if !thumbnail.IsFileTypeSupported(res.GetMimeType(), res.GetName()) {
 		return nil
 	}
 	return thumbnailSetFor(baseURL, storagespace.FormatResourceID(res.GetId()))
@@ -61,7 +61,7 @@ func previewThumbnail(base string, box int32) *libregraph.Thumbnail {
 // info. The id comes separately, a received share carries it on its remote item.
 func setShareThumbnails(item *libregraph.DriveItem, itemID, baseURL string) {
 	mimeType := item.GetFile().MimeType
-	if itemID == "" || mimeType == nil || !thumbnail.IsMimeTypeSupported(*mimeType) {
+	if itemID == "" || mimeType == nil || !thumbnail.IsFileTypeSupported(*mimeType, item.GetName()) {
 		return
 	}
 	item.SetThumbnails([]libregraph.ThumbnailSet{*thumbnailSetFor(baseURL, itemID)})

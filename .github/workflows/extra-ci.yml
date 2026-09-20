@@ -1,0 +1,14 @@
+name: OpenCloud Extra pull request checks
+
+on:
+  pull_request:
+    branches: [extra/stable]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'cpouldev/opencloud-extra'
+    uses: ./.github/workflows/extra-validate.yml
+

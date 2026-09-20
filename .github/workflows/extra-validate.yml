@@ -1,0 +1,128 @@
+name: Validate OpenCloud Extra
+
+on:
+  workflow_call:
+    inputs:
+      base:
+        type: string
+        default: ''
+      candidate_artifact:
+        type: string
+        default: ''
+      save_images:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate linux/${{ matrix.arch }}
+    if: github.repository == 'cpouldev/opencloud-extra'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: inputs.candidate_artifact != ''
+        with:
+          name: ${{ inputs.candidate_artifact }}
+          path: /tmp/extra-release
+      - name: Restore the exact candidate
+        if: inputs.candidate_artifact != ''
+        run: python3 extras/release/release.py restore
+      - name: Release decision tests
+        run: python3 -m unittest discover -s extras/release -p 'test_*.py' -v
+      - name: Check workflow syntax
+        if: matrix.arch == 'amd64'
+        run: |
+          docker run --rm --volume "$PWD:/repo:ro" --workdir /repo \
+            rhysd/actionlint:1.7.12 .github/workflows/extra-ci.yml \
+            .github/workflows/extra-release.yml .github/workflows/extra-validate.yml
+      - name: Build identity
+        id: identity
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          plan = pathlib.Path('/tmp/extra-release/plan.json')
+          version = json.loads(plan.read_text())['version'] if plan.exists() else '0.0.0-extra.1'
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\nrevision={revision}\n')
+          PY
+      - name: Free unused hosted-runner SDK space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and test Go integration
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.extra
+          target: go-test
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            VERSION=${{ steps.identity.outputs.version }}
+            REVISION=${{ steps.identity.outputs.revision }}
+          cache-from: type=gha,scope=extra-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=extra-${{ matrix.arch }}
+      - name: Build the image to be published
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.extra
+          load: true
+          platforms: linux/${{ matrix.arch }}
+          tags: opencloud-extra:test-${{ matrix.arch }}
+          build-args: |
+            VERSION=${{ steps.identity.outputs.version }}
+            REVISION=${{ steps.identity.outputs.revision }}
+          cache-from: type=gha,scope=extra-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=extra-${{ matrix.arch }}
+      - name: Verify OpenCloud and all converter dependencies
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm --network none \
+            --entrypoint /usr/local/bin/opencloud-extra-smoke "opencloud-extra:test-$ARCH"
+      - name: Real thumbnail conversions
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,source=$PWD,target=/src,readonly" \
+            -e OPENCLOUD_EXTRA_REQUIRE_CONVERTERS=1 \
+            --entrypoint python3 "opencloud-extra:test-$ARCH" \
+            -m unittest discover -s /src/extras/tests -v
+      - name: Authenticated file upload and thumbnail previews
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,source=$PWD,target=/src,readonly" \
+            --entrypoint python3 "opencloud-extra:test-$ARCH" \
+            /src/extras/container/preview-smoke.py
+      - name: Save the tested image
+        if: inputs.save_images
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: docker save --output "/tmp/extra-release/image-$ARCH.tar" "opencloud-extra:test-$ARCH"
+      - uses: actions/upload-artifact@v4
+        if: inputs.save_images
+        with:
+          name: extra-image-${{ matrix.arch }}
+          path: /tmp/extra-release/image-${{ matrix.arch }}.tar
+          retention-days: 3
+          compression-level: 1

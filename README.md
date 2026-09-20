@@ -1,3 +1,20 @@
+# OpenCloud Extra
+
+OpenCloud Extra is an independent downstream distribution of OpenCloud with
+additional thumbnails for videos (including HEVC), Photoshop, PDF-compatible
+Illustrator files, fonts, modern images, RAW photos, Office documents, creative
+archives, audio, books, and source files.
+
+- **Container:** `docker.io/cpoul/opencloud-extra:stable` (Linux amd64 and arm64).
+- **Stable branch:** `extra/stable`, based on upstream release tags.
+- **Maintenance:** daily upstream release checks, tested merges, and automatic
+  container publication. Custom work and automation stay in this fork.
+- **Setup, formats, limits, and releases:** [OpenCloud Extra guide](docs/opencloud-extra.md).
+
+This project is not an official OpenCloud release. Report downstream problems and
+propose changes in [cpouldev/opencloud-extra](https://github.com/cpouldev/opencloud-extra).
+Never send this fork's customizations or automated pull requests upstream.
+
 ![OpenCloud logo](https://raw.githubusercontent.com/opencloud-eu/opencloud/refs/heads/main/opencloud_logo.png)
 
 [![status-badge](https://ci.opencloud.rocks/api/badges/3/status.svg)](https://ci.opencloud.rocks/repos/3)
@@ -10,24 +27,15 @@
 > [!TIP]
 > For general information about OpenCloud and how to install please visit [OpenCloud on Github](https://github.com/opencloud-eu/) and [OpenCloud GmbH](https://opencloud.eu).
 
-This is the main repository of the OpenCloud server.
-It contains the golang codebase for the backend services.
+This fork contains the Go codebase for the OpenCloud backend services, together
+with the OpenCloud Extra thumbnail providers and release automation.
 
 ## Getting Involved
 
 The OpenCloud server is released under [Apache 2.0](https://github.com/opencloud-eu/opencloud/blob/main/LICENSE).
-The project is thrilled to receive contributions in all forms.
-Start hacking now, there are many ways to get involved such as:
-
-- Reporting [issues or bugs](https://github.com/opencloud-eu/opencloud/issues)
-- Requesting [features](https://github.com/opencloud-eu/opencloud/issues)
-- [Writing documentation](https://github.com/opencloud-eu/docs)
-- [Writing code or extend our tests](https://github.com/opencloud-eu/opencloud/pulls)
-- [Reviewing code](https://github.com/opencloud-eu/opencloud/pulls)
-- Helping others in the [community](https://app.element.io/#/room/#opencloud:matrix.org)
-
-Every contribution is meaningful and appreciated!
-Please refer to our [Contribution Guidelines](https://github.com/opencloud-eu/opencloud/blob/main/CONTRIBUTING.md) if you want to get started.
+For OpenCloud Extra, use this fork's [issues](https://github.com/cpouldev/opencloud-extra/issues)
+and [pull requests](https://github.com/cpouldev/opencloud-extra/pulls).
+Read [AGENTS.md](AGENTS.md) before working on automation: upstream access is read-only.
 
 ## Build OpenCloud
 

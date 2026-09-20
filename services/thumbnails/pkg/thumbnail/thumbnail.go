@@ -7,6 +7,7 @@ import (
 
 	"github.com/opencloud-eu/opencloud/pkg/log"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/errors"
+	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/extra"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/thumbnail/storage"
 )
 
@@ -108,7 +109,15 @@ func IsMimeTypeSupported(m string) bool {
 		return false
 	}
 	_, supported := SupportedMimeTypes[mimeType]
-	return supported
+	_, extraSupported := extra.Lookup(mimeType, "")
+	return supported || extraSupported
+}
+
+// IsFileTypeSupported includes formats which require the filename to disambiguate
+// their MIME type, such as PDF-compatible Illustrator and creative archives.
+func IsFileTypeSupported(mimeType, filename string) bool {
+	_, supported := extra.Lookup(mimeType, filename)
+	return supported || IsMimeTypeSupported(mimeType)
 }
 
 // PrepareRequest prepare the request based on image parameters

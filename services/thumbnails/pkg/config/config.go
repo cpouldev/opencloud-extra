@@ -3,6 +3,7 @@ package config
 
 import (
 	"context"
+	"time"
 
 	"github.com/opencloud-eu/opencloud/pkg/shared"
 	"go-micro.dev/v4/client"
@@ -46,4 +47,6 @@ type Thumbnail struct {
 	MaxInputWidth         int               `yaml:"max_input_width" env:"THUMBNAILS_MAX_INPUT_WIDTH" desc:"The maximum width of an input image which is being processed." introductionVersion:"1.0.0"`
 	MaxInputHeight        int               `yaml:"max_input_height" env:"THUMBNAILS_MAX_INPUT_HEIGHT" desc:"The maximum height of an input image which is being processed." introductionVersion:"1.0.0"`
 	MaxInputImageFileSize string            `yaml:"max_input_image_file_size" env:"THUMBNAILS_MAX_INPUT_IMAGE_FILE_SIZE" desc:"The maximum file size of an input image which is being processed. Usable common abbreviations: [KB, KiB, MB, MiB, GB, GiB, TB, TiB, PB, PiB, EB, EiB], example: 2GB." introductionVersion:"1.0.0"`
+	ExtraRenderer         string            `yaml:"extra_renderer" env:"THUMBNAILS_EXTRA_RENDERER" desc:"Executable used by OpenCloud Extra to render additional file formats." introductionVersion:"8.0.1"`
+	ExtraTimeout          time.Duration     `yaml:"extra_timeout" env:"THUMBNAILS_EXTRA_TIMEOUT" desc:"Maximum time to download and render an extra thumbnail, for example 90s." introductionVersion:"8.0.1"`
 }

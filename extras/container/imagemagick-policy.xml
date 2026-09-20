@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<policymap>
+  <policy domain="resource" name="memory" value="256MiB" />
+  <policy domain="resource" name="map" value="512MiB" />
+  <policy domain="resource" name="disk" value="1GiB" />
+  <policy domain="resource" name="width" value="32KP" />
+  <policy domain="resource" name="height" value="32KP" />
+  <policy domain="resource" name="area" value="100MP" />
+  <policy domain="resource" name="list-length" value="128" />
+  <policy domain="resource" name="thread" value="2" />
+  <policy domain="resource" name="time" value="80" />
+
+  <!-- Conversions invoke explicit tools. ImageMagick may not spawn delegates,
+       run filter modules, fetch URLs, or load indirect text/list files. -->
+  <policy domain="delegate" rights="none" pattern="*" />
+  <policy domain="filter" rights="none" pattern="*" />
+  <policy domain="path" rights="none" pattern="@*" />
+  <policy domain="path" rights="none" pattern="|*" />
+  <policy domain="coder" rights="none" pattern="*" />
+  <policy domain="coder" rights="read | write" pattern="{AVIF,BMP,BMP2,BMP3,DIB,EXR,GIF,HEIC,HEIF,HDR,ICO,J2C,J2K,JP2,JPC,JPE,JPEG,JPG,JPT,JXL,PNG,PNG8,PNG24,PNG32,PNG48,PNG64,PNM,PBM,PGM,PPM,PAM,PSD,PSB,TGA,TIFF,TIFF64,WEBP,XCF}" />
+</policymap>
