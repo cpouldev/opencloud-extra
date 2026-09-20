@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
@@ -13,6 +14,7 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/log"
 	"github.com/opencloud-eu/opencloud/pkg/tracing"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/config"
+	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/extra"
 	tjwt "github.com/opencloud-eu/opencloud/services/thumbnails/pkg/service/jwt"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/thumbnail"
 )
@@ -104,8 +106,14 @@ func (s Thumbnails) GetThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumbnailBytes)))
+	if strings.HasPrefix(key, extra.MetadataCachePrefix) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	} else {
+		w.Header().Set("Content-Type", http.DetectContentType(thumbnailBytes))
+	}
+	w.WriteHeader(http.StatusOK)
 	if _, err = w.Write(thumbnailBytes); err != nil {
 		logger.Error().
 			Err(err).

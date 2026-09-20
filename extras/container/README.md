@@ -47,7 +47,8 @@ checks its status endpoint and web assets. Both commands run without a network
 and as the image's service user.
 
 The authenticated preview smoke also checks real 2048-pixel AI, PSD, SVG and font
-previews, repeat requests, and denial of anonymous access to private previews:
+previews, source metadata, repeat requests, JSON headers, and denial of anonymous
+access to cached private previews and metadata:
 
 ```sh
 docker run --rm --network none -v "$PWD:/src:ro" \
@@ -57,6 +58,9 @@ docker run --rm --network none -v "$PWD:/src:ro" \
 The browser suite starts a disposable, seeded server on `127.0.0.1:9200`, signs
 in through OpenCloud's login page, and opens actual files. It checks full
 previews, zoom/pan/fit, loading and error states, and existing JPEG/PDF viewers.
+Quick Look checks cover table/tile keyboard opening, visible order, navigation
+past a failed conversion and closing. The information panel checks source
+dimensions, codecs, fonts, deferred loading and absence of original downloads.
 The server and its temporary data are removed afterward. Port 9200 must be free.
 
 ```sh

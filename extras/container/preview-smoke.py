@@ -125,6 +125,28 @@ def check_previews(root):
             code, cached, _ = request(preview_url)
             if code != 200 or cached != large:
                 raise RuntimeError(f"{fixture.name}: repeated preview changed")
+        metadata_url = target + "?preview=1&x=1&y=1&processor=extra-metadata-v1"
+        code, details, headers = request(metadata_url)
+        if code != 200 or not headers.get("Content-Type", "").startswith("application/json"):
+            raise RuntimeError(f"{fixture.name}: metadata returned {code}: {details[:300]!r}")
+        if headers.get("X-Content-Type-Options") != "nosniff" or len(details) > 16384:
+            raise RuntimeError(f"{fixture.name}: metadata response is not bounded JSON")
+        metadata = json.loads(details)
+        expected = {
+            "vector.svg": {"pageWidth": 1800, "pageHeight": 1200},
+            "layered.psd": {"width": 2400, "height": 1600},
+            "artwork.ai": {"pages": 1, "pageWidth": 2400, "pageHeight": 1600},
+            "typeface.woff2": {"fontFamily": "DejaVu Sans", "fontFaces": 1},
+            "hevc.mp4": {"width": 160, "height": 96, "videoCodec": "hevc", "duration": 1},
+        }[fixture.name]
+        if metadata.get("schemaVersion") != 1 or any(metadata.get(key) != value for key, value in expected.items()):
+            raise RuntimeError(f"{fixture.name}: incorrect source metadata: {metadata!r}")
+        code, cached, _ = request(metadata_url)
+        if code != 200 or cached != details:
+            raise RuntimeError(f"{fixture.name}: metadata cache changed")
+        code, _, _ = request(metadata_url, authenticated=False)
+        if code == 200:
+            raise RuntimeError("Unauthenticated request retrieved private metadata")
         code, body, _ = request(target, "PROPFIND", propfind, {"Depth": "0", "Content-Type": "application/xml"})
         if code != 207 or not any(node.tag.endswith("}has-preview") and node.text == "1" for node in ET.fromstring(body).iter()):
             raise RuntimeError(f"{fixture.name}: WebDAV did not advertise a preview ({code}): {body[:1500]!r}")
@@ -133,7 +155,7 @@ def check_previews(root):
             if code == 200 and headers.get("Content-Type", "").startswith("image/"):
                 raise RuntimeError("Unauthenticated request retrieved a private thumbnail")
         names.append(fixture.name)
-        print(f"PASS authenticated upload, preview, WebDAV metadata: {fixture.name}", flush=True)
+        print(f"PASS authenticated upload, preview, source metadata and cache: {fixture.name}", flush=True)
     code, body, _ = request("/graph/v1.0/me/drive/root/children?$expand=thumbnails")
     if code != 200:
         raise RuntimeError(f"Graph children returned {code}")

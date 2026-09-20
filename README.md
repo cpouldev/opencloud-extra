@@ -7,6 +7,8 @@ archives, audio, books, and source files.
 
 The bundled **Rendered preview** app also opens design files, fonts, RAW images
 and other extra formats with zoom, pan and fitted previews up to 2048 pixels.
+Quick Look adds Space-to-preview and arrow-key browsing. An information panel
+shows source dimensions, color profiles, media codecs and font details.
 
 - **Container:** `docker.io/cpoul/opencloud-extra:stable` (Linux amd64 and arm64).
 - **Stable branch:** `extra/stable`, based on upstream release tags.

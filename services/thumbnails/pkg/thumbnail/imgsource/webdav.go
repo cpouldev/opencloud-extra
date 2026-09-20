@@ -34,7 +34,7 @@ type WebDav struct {
 // Get downloads the file from a webdav service
 // The caller MUST make sure to close the returned ReadCloser
 func (s WebDav) Get(ctx context.Context, url string) (io.ReadCloser, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, `could not get the image "%s"`, url)
 	}

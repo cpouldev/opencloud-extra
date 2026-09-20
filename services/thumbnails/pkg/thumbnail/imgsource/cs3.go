@@ -58,7 +58,10 @@ func (s CS3) Get(ctx context.Context, path string) (io.ReadCloser, error) {
 		}
 	}
 
-	ctx = metadata.AppendToOutgoingContext(context.Background(), revactx.TokenHeader, auth)
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set(revactx.TokenHeader, auth)
+	ctx = metadata.NewOutgoingContext(ctx, md)
 	err = s.checkImageFileSize(ctx, ref)
 	if err != nil {
 		return nil, err

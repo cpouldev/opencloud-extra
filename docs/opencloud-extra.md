@@ -81,6 +81,37 @@ image and reload the web page. There is no need to re-upload files or generate
 previews manually. Grid thumbnails and full previews are generated on demand
 and cached separately.
 
+### Quick Look and file information
+
+In a folder's table or tile view, select one supported file and press **Space**
+to open Quick Look. **Left/Right** or the previous/next buttons browse the
+supported files on the current displayed page in the same order. **Space** or
+**Escape** closes the viewer; **Shift + arrow keys** pans a zoomed image.
+The context menu also offers **Quick Look** for native images, PDF, video frames
+and audio previews. Their normal click actions keep opening the native apps.
+
+Navigation does not wrap or cross into another folder, page or public share.
+Direct file links show one file. Search views retain their existing keyboard
+behavior. Typing into inputs and using modified shortcuts does not open Quick
+Look. An inaccessible, encrypted or unsupported file cannot join the sequence.
+
+The **Info** button opens source information on demand:
+
+- File name, size, type and modification time.
+- Original raster/RAW dimensions, available color space, embedded ICC profile
+  name and bit depth. These are source properties, not thumbnail dimensions.
+- PDF-compatible Illustrator/PDF page count and first-page dimensions in points;
+  SVG absolute viewport dimensions are also shown in points.
+- Video/audio codecs, duration, frame dimensions/rate, sample rate and channels.
+- Font family, style, full name, version, glyph count, collection face count and
+  variable-font status; details describe the first face of a collection.
+
+Unavailable properties are omitted. Office, text, archive and book files retain
+basic file information without a separate source scan. Relative SVG dimensions
+and a viewBox alone do not establish a physical page size. Source information is
+cached by file identity and revision and uses the same download permissions and
+public-link checks as previews. It never downloads the original to the browser.
+
 ## Configuration and limits
 
 | Variable | Image default | Purpose |

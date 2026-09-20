@@ -127,3 +127,60 @@ Gates 4 and 6 are off for the reasons above.
   larger than 1024; retain small grid dimensions and repeatable cached output.
 - AC-5: Discover the embedded application in the built image's web config and
   load its module through the actual Web runtime on both image architectures.
+
+## Quick Look and asset information
+
+```yaml
+test_strategy:
+  artifact: Keyboard file navigation and source asset metadata
+  rationale: Keyboard handling crosses host selection and routes; source metadata crosses authenticated storage and untrusted decoder boundaries.
+  criticality: HIGH
+  selected_types:
+    - rationale: Selection, keyboard guards, formatting, field validation and cache identity contain branching logic.
+      type: unit
+      size: small
+      framework: Vitest and go test
+      dependencies: [in-memory host doubles]
+      gate: Gate 1
+    - rationale: Source dimensions, profiles, codecs and font names must come from actual input files; authorization must precede cache access.
+      type: integration
+      size: medium
+      framework: Python unittest and go test
+      dependencies: [temporary files, runtime converter tools, local HTTP sources]
+      gate: Gate 2
+    - rationale: Real host selection, keyboard capture, sorted rows and signed public links cannot be established with component mocks.
+      type: e2e
+      size: large
+      framework: Playwright
+      dependencies: [Chromium, disposable OpenCloud container]
+      gate: Gate 3
+    - rationale: Both native architecture images must embed the app and metadata helper before publication.
+      type: smoke
+      size: large
+      framework: existing release validation
+      dependencies: [built Docker image]
+      gate: Gate 5
+  rejected_types:
+    - reason: Metadata producer and consumer ship together in one image.
+      type: contract
+    - reason: Explicit schema bounds and state-transition cases cover the new interfaces without another test framework.
+      type: property-based
+  deliberately_skipped:
+    - why: Existing format conversion tests cover codec variants; metadata needs representative source families and malformed inputs.
+      what: Repeating every supported file extension in a browser
+    - why: Metadata requests are on demand and share existing bounded concurrency; no change to deployment scale is promised.
+      what: A new performance or load-test harness
+```
+
+- Space opens the selected file in table and tile views; Space/Escape closes;
+  input fields, dialogs, modified shortcuts and unrelated routes are untouched.
+- Previous/next follow displayed order, exclude folders and inaccessible files,
+  disable at boundaries and never escape a public share. Shift+arrows still pan.
+- Navigating during a pending preview or metadata request cannot display the
+  previous file's results; URLs and pending requests are released on close.
+- Metadata uses source pixel dimensions or explicitly labeled document points,
+  preserves CMYK/profile information, and reports real codec/duration/font data.
+- Missing fields remain absent; malformed, oversized and unsafe decoder output
+  fails independently of the image preview. No original bytes reach the browser.
+- Private metadata stays inaccessible without permission, including after cache
+  population; source revision changes invalidate metadata independently of images.

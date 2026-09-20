@@ -625,6 +625,7 @@ def main(argv=None):
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--size", type=int, default=1024)
+    parser.add_argument("--metadata", action="store_true", help="Extract bounded source information as JSON")
     args = parser.parse_args(argv)
     output_validated = False
     try:
@@ -638,9 +639,13 @@ def main(argv=None):
         process_limits()
         with tempfile.TemporaryDirectory(prefix="opencloud-extra-", dir=args.input.resolve().parent) as work:
             renderer = Renderer(args.input, args.output, args.size, work)
-            method = {"image": "raster", "photoshop": "raster", "illustrator": "pdf"}.get(args.kind, args.kind)
-            options = {"illustrator": True} if args.kind == "illustrator" else {}
-            getattr(renderer, method)(**options)
+            if args.metadata:
+                from opencloud_extra_assetinfo import extract_metadata
+                extract_metadata(args.kind, renderer)
+            else:
+                method = {"image": "raster", "photoshop": "raster", "illustrator": "pdf"}.get(args.kind, args.kind)
+                options = {"illustrator": True} if args.kind == "illustrator" else {}
+                getattr(renderer, method)(**options)
         return 0
     except Exception as exc:
         # A malformed document can raise different parser-specific exceptions.

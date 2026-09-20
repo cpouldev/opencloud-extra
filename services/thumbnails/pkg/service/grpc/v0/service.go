@@ -2,6 +2,7 @@ package svc
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -25,11 +26,13 @@ import (
 	"github.com/opencloud-eu/opencloud/pkg/log"
 	thumbnailssvc "github.com/opencloud-eu/opencloud/protogen/gen/opencloud/services/thumbnails/v0"
 	terrors "github.com/opencloud-eu/opencloud/services/thumbnails/pkg/errors"
+	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/extra"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/preprocessor"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/service/grpc/v0/decorators"
 	tjwt "github.com/opencloud-eu/opencloud/services/thumbnails/pkg/service/jwt"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/thumbnail"
 	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/thumbnail/imgsource"
+	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/thumbnail/storage"
 )
 
 // NewService returns a service implementation for Service.
@@ -53,10 +56,11 @@ func NewService(opts ...Option) decorators.DecoratedService {
 			options.Config.Thumbnail.MaxInputWidth,
 			options.Config.Thumbnail.MaxInputHeight,
 		),
-		webdavSource: options.ImageSource,
-		cs3Source:    options.CS3Source,
-		logger:       logger,
-		selector:     options.GatewaySelector,
+		webdavSource:    options.ImageSource,
+		metadataStorage: options.ThumbnailStorage,
+		cs3Source:       options.CS3Source,
+		logger:          logger,
+		selector:        options.GatewaySelector,
 		preprocessorOpts: PreprocessorOpts{
 			TxtFontFileMap: options.Config.Thumbnail.FontMapFile,
 			MaxInputWidth:  options.Config.Thumbnail.MaxInputWidth,
@@ -78,6 +82,7 @@ type Thumbnail struct {
 	dataEndpoint     string
 	transferSecret   string
 	manager          thumbnail.Manager
+	metadataStorage  storage.Storage
 	webdavSource     imgsource.Source
 	cs3Source        imgsource.Source
 	logger           log.Logger
@@ -97,6 +102,15 @@ type PreprocessorOpts struct {
 
 // GetThumbnail retrieves a thumbnail for an image
 func (g Thumbnail) GetThumbnail(ctx context.Context, req *thumbnailssvc.GetThumbnailRequest, rsp *thumbnailssvc.GetThumbnailResponse) error {
+	if req.GetProcessor() == extra.MetadataProcessor {
+		timeout := g.preprocessorOpts.ExtraTimeout
+		if timeout <= 0 {
+			timeout = 90 * time.Second
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	var err error
 	var key string
 	switch {
@@ -109,6 +123,12 @@ func (g Thumbnail) GetThumbnail(ctx context.Context, req *thumbnailssvc.GetThumb
 		return merrors.BadRequest(g.serviceID, "image source is missing")
 	}
 	if err != nil {
+		if req.GetProcessor() == extra.MetadataProcessor {
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			return g.metadataError(err)
+		}
 		return err
 	}
 
@@ -156,9 +176,15 @@ func (g Thumbnail) checkThumbnail(req *thumbnailssvc.GetThumbnailRequest, sRes *
 
 func (g Thumbnail) handleCS3Source(ctx context.Context, req *thumbnailssvc.GetThumbnailRequest) (string, error) {
 	src := req.GetCs3Source()
-	sRes, err := g.stat(src.GetPath(), src.GetAuthorization())
+	sRes, err := g.stat(ctx, src.GetPath(), src.GetAuthorization(), req.GetProcessor() == extra.MetadataProcessor)
 	if err != nil {
 		return "", err
+	}
+	if req.GetProcessor() == extra.MetadataProcessor {
+		return g.handleMetadata(ctx, req, sRes.GetInfo(), src.GetPath(), func(ctx context.Context) (io.ReadCloser, error) {
+			ctx = imgsource.ContextSetAuthorization(ctx, src.GetAuthorization())
+			return g.cs3Source.Get(ctx, src.GetPath())
+		})
 	}
 
 	key, tr, err := g.checkThumbnail(req, sRes)
@@ -247,15 +273,32 @@ func (g Thumbnail) handleWebdavSource(ctx context.Context, req *thumbnailssvc.Ge
 		if err != nil {
 			return "", merrors.InternalServerError(g.serviceID, "could not authenticate: %s", err.Error())
 		}
+		if rsp.GetStatus().GetCode() != rpc.Code_CODE_OK {
+			return "", merrors.Forbidden(g.serviceID, "could not authenticate public link")
+		}
 		auth = rsp.GetToken()
 		statPath = path.Join("/public", src.GetPublicLinkToken(), req.GetFilepath())
 	} else {
 		auth = src.GetRevaAuthorization()
 		statPath = req.GetFilepath()
 	}
-	sRes, err := g.stat(statPath, auth)
+	sRes, err := g.stat(ctx, statPath, auth, req.GetProcessor() == extra.MetadataProcessor)
 	if err != nil {
 		return "", err
+	}
+	if req.GetProcessor() == extra.MetadataProcessor {
+		return g.handleMetadata(ctx, req, sRes.GetInfo(), statPath, func(ctx context.Context) (io.ReadCloser, error) {
+			if src.GetWebdavAuthorization() != "" {
+				ctx = imgsource.ContextSetAuthorization(ctx, src.GetWebdavAuthorization())
+			}
+			// Preserve public signed URL credentials, but never forward the preview
+			// query when downloading the original for server-side extraction.
+			params := url.Values{}
+			params.Set("signature", imgURL.Query().Get("signature"))
+			params.Set("expiration", imgURL.Query().Get("expiration"))
+			imgURL.RawQuery = params.Encode()
+			return g.webdavSource.Get(ctx, imgURL.String())
+		})
 	}
 
 	key, tr, err := g.checkThumbnail(req, sRes)
@@ -312,8 +355,11 @@ func (g Thumbnail) handleWebdavSource(ctx context.Context, req *thumbnailssvc.Ge
 	return key, err
 }
 
-func (g Thumbnail) stat(path, auth string) (*provider.StatResponse, error) {
-	ctx := metadata.AppendToOutgoingContext(context.Background(), revactx.TokenHeader, auth)
+func (g Thumbnail) stat(ctx context.Context, path, auth string, metadataRequest bool) (*provider.StatResponse, error) {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set(revactx.TokenHeader, auth)
+	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	ref, err := storagespace.ParseReference(path)
 	if err != nil {
@@ -339,6 +385,8 @@ func (g Thumbnail) stat(path, auth string) (*provider.StatResponse, error) {
 		switch rsp.GetStatus().GetCode() {
 		case rpc.Code_CODE_NOT_FOUND:
 			return nil, merrors.NotFound(g.serviceID, "could not stat file: %s", rsp.GetStatus().GetMessage())
+		case rpc.Code_CODE_PERMISSION_DENIED, rpc.Code_CODE_UNAUTHENTICATED:
+			return nil, merrors.Forbidden(g.serviceID, "could not stat file")
 		default:
 			g.logger.Error().Str("status_message", rsp.GetStatus().GetMessage()).Str("path", path).Msg("could not stat file")
 			return nil, merrors.InternalServerError(g.serviceID, "could not stat file: %s", rsp.GetStatus().GetMessage())
@@ -355,11 +403,11 @@ func (g Thumbnail) stat(path, auth string) (*provider.StatResponse, error) {
 			Status: http.StatusText(http.StatusTooEarly),
 		}
 	}
-	if rsp.GetInfo().GetChecksum().GetSum() == "" {
+	if !metadataRequest && rsp.GetInfo().GetChecksum().GetSum() == "" {
 		g.logger.Error().Msg("resource info is missing checksum")
 		return nil, merrors.NotFound(g.serviceID, "resource info is missing a checksum")
 	}
-	if !thumbnail.IsFileTypeSupported(rsp.GetInfo().GetMimeType(), rsp.GetInfo().GetName()) {
+	if !metadataRequest && !thumbnail.IsFileTypeSupported(rsp.GetInfo().GetMimeType(), rsp.GetInfo().GetName()) {
 		return nil, merrors.NotFound(g.serviceID, "Unsupported file type")
 	}
 	return rsp, nil

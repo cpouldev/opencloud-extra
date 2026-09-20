@@ -35,5 +35,21 @@ no static registration snapshots substitute for that check.
 
 Browser test hooks use `data-testid` values `extra-preview`,
 `extra-preview-loading`, `extra-preview-error`, `extra-preview-image`,
-`extra-preview-stage` and `extra-preview-zoom`. Toolbar controls have descriptive
-accessible names; the stage accepts `+`, `-`, arrow keys, `0` (fit), and Escape.
+`extra-preview-stage`, `extra-preview-zoom`, `extra-preview-position` and
+`extra-asset-info`. Toolbar controls have descriptive accessible names; the stage
+accepts `+`, `-`, `0` (fit), Left/Right (files), Shift+arrows (pan), Space and Escape
+(close).
+
+Quick Look captures only the rendered folder page via Web v8's `data-item-id`
+hooks before the host replaces its resources store. Preserve the table/tile
+browser tests when updating Web. The Space capture handler yields to inputs,
+dialogs, unrelated controls, modified keys, multiple selections and other routes.
+Normal file-handler registration is unchanged; native formats get an explicit
+Quick Look context action. Direct links have no captured sibling list.
+
+`AssetInfo.vue` mounts only when requested. Its loader uses the same host preview
+transport with `processor: 'extra-metadata-v1'` and `dimensions: [1, 1]`, returning
+bounded schema-versioned JSON. Image and metadata client caches stay independent;
+the server keys metadata by source identity and revision. Field formatting keeps
+pixel dimensions distinct from document points. Panel failures never replace a
+working image. Abort and URL cleanup apply to both private and public requests.

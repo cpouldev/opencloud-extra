@@ -270,6 +270,8 @@ func (g Webdav) SpacesThumbnail(w http.ResponseWriter, r *http.Request) {
 			renderError(w, r, errBadRequest(e.Detail))
 		case http.StatusForbidden:
 			renderError(w, r, errPermissionDenied(e.Detail))
+		case http.StatusRequestEntityTooLarge, http.StatusRequestTimeout:
+			renderError(w, r, newErrResponse(int(e.Code), e.Detail))
 		default:
 			renderError(w, r, errInternalError(err.Error()))
 		}
@@ -373,6 +375,8 @@ func (g Webdav) Thumbnail(w http.ResponseWriter, r *http.Request) {
 			renderError(w, r, errBadRequest(e.Detail))
 		case http.StatusForbidden:
 			renderError(w, r, errPermissionDenied(e.Detail))
+		case http.StatusRequestEntityTooLarge, http.StatusRequestTimeout:
+			renderError(w, r, newErrResponse(int(e.Code), e.Detail))
 		default:
 			renderError(w, r, errInternalError(err.Error()))
 		}
@@ -415,6 +419,10 @@ func (g Webdav) PublicThumbnail(w http.ResponseWriter, r *http.Request) {
 			return
 		case http.StatusBadRequest:
 			renderError(w, r, errBadRequest(e.Detail))
+		case http.StatusForbidden:
+			renderError(w, r, errPermissionDenied(e.Detail))
+		case http.StatusRequestEntityTooLarge, http.StatusRequestTimeout:
+			renderError(w, r, newErrResponse(int(e.Code), e.Detail))
 		case http.StatusTooManyRequests:
 			addRetryAfterHeader(w)
 			renderError(w, r, errTooManyRequests(e.Detail))
@@ -460,6 +468,10 @@ func (g Webdav) PublicThumbnailHead(w http.ResponseWriter, r *http.Request) {
 			return
 		case http.StatusBadRequest:
 			renderError(w, r, errBadRequest(e.Detail))
+		case http.StatusForbidden:
+			renderError(w, r, errPermissionDenied(e.Detail))
+		case http.StatusRequestEntityTooLarge, http.StatusRequestTimeout:
+			renderError(w, r, newErrResponse(int(e.Code), e.Detail))
 		case http.StatusTooManyRequests:
 			addRetryAfterHeader(w)
 			renderError(w, r, errTooManyRequests(e.Detail))
@@ -479,7 +491,7 @@ func (g Webdav) sendThumbnailResponse(rsp *thumbnailssvc.GetThumbnailResponse, w
 		// Timeout: time.Second * 5,
 	}
 
-	dlReq, err := http.NewRequest(http.MethodGet, rsp.DataEndpoint, http.NoBody)
+	dlReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, rsp.DataEndpoint, http.NoBody)
 	if err != nil {
 		renderError(w, r, errInternalError(err.Error()))
 		logger.Error().Err(err).Msg("could not create download thumbnail request")
@@ -505,8 +517,14 @@ func (g Webdav) sendThumbnailResponse(rsp *thumbnailssvc.GetThumbnailResponse, w
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", dlRsp.Header.Get("Content-Type"))
+	if value := dlRsp.Header.Get("X-Content-Type-Options"); value != "" {
+		w.Header().Set("X-Content-Type-Options", value)
+	}
+	if value := dlRsp.Header.Get("Content-Length"); value != "" {
+		w.Header().Set("Content-Length", value)
+	}
+	w.WriteHeader(http.StatusOK)
 	_, err = io.Copy(w, dlRsp.Body)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to write thumbnail to response writer")

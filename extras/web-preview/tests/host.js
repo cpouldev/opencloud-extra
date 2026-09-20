@@ -3,3 +3,7 @@
 export function usePreviewService() {
   return globalThis.__extraPreviewService
 }
+
+export function useRouter() {
+  return globalThis.__extraPreviewRouter
+}

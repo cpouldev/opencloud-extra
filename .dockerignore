@@ -4,6 +4,8 @@
 .git
 **/bin
 **/node_modules
+**/__pycache__
+**/*.pyc
 **/tmp
 docs
 extras/web-preview/dist

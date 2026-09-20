@@ -137,6 +137,10 @@ test('opens a protected public-link preview without signing in', async ({ browse
     await page.getByLabel('Password', { exact: true }).fill(linkPassword)
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
     await expectRenderedImage(page)
+    await page.getByRole('button', { name: 'Asset information', exact: true }).click()
+    await expect(page.getByTestId('extra-asset-info')).toContainText('2,400 × 1,600 pt')
+    await expect(page.getByRole('button', { name: 'Previous file', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Next file', exact: true })).toBeDisabled()
   } finally {
     await anonymous.close()
   }

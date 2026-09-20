@@ -29,6 +29,22 @@ func ForFile(mimeType, filename string, opts map[string]any) FileConverter {
 	if !supported {
 		return ForType(mimeType, opts)
 	}
+	return newExtraConverter(format, opts)
+}
+
+// ForMetadataFile returns a bounded metadata extractor for supported sources.
+// A false result means that no source download is needed for asset information.
+func ForMetadataFile(mimeType, filename string, opts map[string]any) (FileConverter, bool) {
+	format, supported := extra.LookupMetadata(mimeType, filename)
+	if !supported {
+		return nil, false
+	}
+	converter := newExtraConverter(format, opts)
+	converter.metadata = true
+	return converter, true
+}
+
+func newExtraConverter(format extra.Format, opts map[string]any) ExtraConverter {
 	converter := ExtraConverter{
 		format: format, command: "opencloud-extra-thumbnail", timeout: 90 * time.Second,
 		maxBytes: 50_000_000, ctx: context.Background(), limit: decodeLimitFromOpts(opts), size: extraSize,
@@ -64,6 +80,7 @@ type ExtraConverter struct {
 	size     int
 	ctx      context.Context
 	limit    decodeLimit
+	metadata bool
 }
 
 func (c ExtraConverter) Convert(r io.Reader) (any, error) {
@@ -102,8 +119,18 @@ func (c ExtraConverter) Convert(r io.Reader) (any, error) {
 		return nil, thumbnailerErrors.ErrImageTooLarge
 	}
 	output := filepath.Join(dir, "thumbnail.png")
-	cmd := exec.CommandContext(ctx, c.command,
-		"--kind", c.format.Kind, "--input", input, "--output", output, "--size", strconv.Itoa(c.size))
+	maxOutput := int64(extraMaxOutputSize)
+	if c.metadata {
+		output = filepath.Join(dir, "metadata.json")
+		maxOutput = extra.MetadataMaxOutputSize
+	}
+	args := []string{"--kind", c.format.Kind, "--input", input, "--output", output}
+	if c.metadata {
+		args = append(args, "--metadata")
+	} else {
+		args = append(args, "--size", strconv.Itoa(c.size))
+	}
+	cmd := exec.CommandContext(ctx, c.command, args...)
 	cmd.Dir = dir
 	cmd.Env = extraEnvironment(dir)
 	cmd.WaitDelay = 2 * time.Second
@@ -121,7 +148,7 @@ func (c ExtraConverter) Convert(r io.Reader) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extra thumbnail output: %w", err)
 	}
-	if !stat.Mode().IsRegular() || stat.Size() > extraMaxOutputSize {
+	if !stat.Mode().IsRegular() || stat.Size() > maxOutput {
 		return nil, fmt.Errorf("extra thumbnail output is not a bounded regular file")
 	}
 	preview, err := os.Open(output)
@@ -129,6 +156,13 @@ func (c ExtraConverter) Convert(r io.Reader) (any, error) {
 		return nil, err
 	}
 	defer preview.Close()
+	if c.metadata {
+		data, err := io.ReadAll(io.LimitReader(preview, extra.MetadataMaxOutputSize+1))
+		if err != nil {
+			return nil, err
+		}
+		return extra.ValidateMetadata(data)
+	}
 	config, err := png.DecodeConfig(preview)
 	if err != nil {
 		return nil, fmt.Errorf("extra thumbnail output is not PNG: %w", err)

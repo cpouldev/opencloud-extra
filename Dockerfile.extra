@@ -32,6 +32,7 @@ WORKDIR /var/lib/opencloud
 FROM runtime-deps AS runtime
 
 COPY --chmod=755 extras/thumbnailer.py /usr/local/bin/opencloud-extra-thumbnail
+COPY extras/opencloud_extra_assetinfo.py /usr/local/bin/opencloud_extra_assetinfo.py
 COPY --chmod=755 extras/container/smoke.py /usr/local/bin/opencloud-extra-smoke
 
 # Bounds also apply to subprocesses started by the renderer. Go owns the overall

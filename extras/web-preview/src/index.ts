@@ -2,21 +2,32 @@ import { computed } from 'vue'
 import {
   AppWrapperRoute,
   defineWebApplication,
-  useFileActions
+  useFileActions,
+  useResourcesStore,
+  useRouter,
+  useSpacesStore
 } from '@opencloud-eu/web-pkg'
 import { isShareSpaceResource, isTrashResource } from '@opencloud-eu/web-client'
 import Preview from './Preview.vue'
 import { extensionOf, fallbackExtensions, previewExtensions, unavailableReason } from './formats.js'
+import { createQuickLookController, isQuickLookEligible, previewRouteName } from './quicklook.js'
 
 const appId = 'extra-preview'
-const routeName = 'extra-preview-file'
+const routeName = previewRouteName
 
 export default defineWebApplication({
   setup() {
     const { getEditorRouteOpts, openEditor } = useFileActions()
     const fileHandler = { app: appId, routeName }
+    const quickLook = createQuickLookController({
+      router: useRouter(),
+      resourcesStore: useResourcesStore(),
+      spacesStore: useSpacesStore(),
+      getEditorRouteOpts
+    })
 
     return {
+      mounted: ({ instance }) => instance.onUnmount(quickLook.dispose),
       appInfo: {
         id: appId,
         name: 'Rendered preview',
@@ -44,6 +55,20 @@ export default defineWebApplication({
       // Native file handlers rank ahead of primary context actions in Web v8.
       // Office/EPUB previews remain a fallback to native editors and readers.
       extensions: computed(() => [{
+        id: 'extra-quick-look',
+        type: 'action',
+        extensionPointIds: ['global.files.context-actions'],
+        action: {
+          name: 'extra-quick-look',
+          icon: 'eye',
+          category: 'secondary',
+          label: () => 'Quick Look',
+          shortcut: 'Space',
+          handler: ({ space, resources }) => quickLook.open(space, resources[0]),
+          isVisible: ({ space, resources }) => Boolean(space?.id) &&
+            resources.length === 1 && isQuickLookEligible(resources[0])
+        }
+      }, {
         id: 'extra-preview-fallback',
         type: 'action',
         extensionPointIds: ['global.files.context-actions'],
