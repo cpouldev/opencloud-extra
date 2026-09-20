@@ -1,0 +1,11 @@
+{
+  "name": "opencloud-extra-browser-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

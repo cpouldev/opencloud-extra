@@ -23,7 +23,8 @@ The following targets shorten focused checks:
 | --- | --- |
 | `runtime-deps` | Converter libraries and executables |
 | `runtime` | Converters, renderer, and smoke command; no OpenCloud binary |
-| `build` | Generated assets and compiled Go binary |
+| `extra-web` | Bundled preview app build and component tests |
+| `build` | Generated assets, embedded preview app and compiled Go binary |
 | `go-test` | Thumbnail, Graph/WebDAV service, and libvips thumbnail tests |
 | `final` | Deployable OpenCloud Extra image |
 
@@ -44,6 +45,30 @@ fonts, and ImageMagick policy. The renderer integration suite exercises the othe
 families. The final image smoke also boots a disposable OpenCloud instance and
 checks its status endpoint and web assets. Both commands run without a network
 and as the image's service user.
+
+The authenticated preview smoke also checks real 2048-pixel AI, PSD, SVG and font
+previews, repeat requests, and denial of anonymous access to private previews:
+
+```sh
+docker run --rm --network none -v "$PWD:/src:ro" \
+  --entrypoint python3 opencloud-extra:local /src/extras/container/preview-smoke.py
+```
+
+The browser suite starts a disposable, seeded server on `127.0.0.1:9200`, signs
+in through OpenCloud's login page, and opens actual files. It checks full
+previews, zoom/pan/fit, loading and error states, and existing JPEG/PDF viewers.
+The server and its temporary data are removed afterward. Port 9200 must be free.
+
+```sh
+cd extras/browser
+npm ci
+npx playwright install --with-deps chromium
+OPENCLOUD_EXTRA_TEST_IMAGE=opencloud-extra:local npm test
+```
+
+On a development Mac with Google Chrome installed, set
+`OPENCLOUD_EXTRA_BROWSER_CHANNEL=chrome` to use it. CI installs the pinned
+Playwright Chromium build and runs the suite against both native image builds.
 
 ## Runtime packages
 

@@ -19,6 +19,7 @@ import (
 
 const (
 	extraSize          = 1024
+	extraPreviewSize   = 2048
 	extraMaxOutputSize = 128 << 20
 )
 
@@ -30,7 +31,13 @@ func ForFile(mimeType, filename string, opts map[string]any) FileConverter {
 	}
 	converter := ExtraConverter{
 		format: format, command: "opencloud-extra-thumbnail", timeout: 90 * time.Second,
-		maxBytes: 50_000_000, ctx: context.Background(), limit: decodeLimitFromOpts(opts),
+		maxBytes: 50_000_000, ctx: context.Background(), limit: decodeLimitFromOpts(opts), size: extraSize,
+	}
+	// Preserve the grid renderer budget and increase it only for a larger
+	// requested thumbnail. The helper output remains bounded independently of
+	// the request and the administrator's source-image dimension limits.
+	if targetSize, ok := opts["targetSize"].(int); ok {
+		converter.size = min(max(targetSize, extraSize), extraPreviewSize)
 	}
 	if command, ok := opts["extraRenderer"].(string); ok && command != "" {
 		converter.command = command
@@ -54,6 +61,7 @@ type ExtraConverter struct {
 	command  string
 	timeout  time.Duration
 	maxBytes int64
+	size     int
 	ctx      context.Context
 	limit    decodeLimit
 }
@@ -95,7 +103,7 @@ func (c ExtraConverter) Convert(r io.Reader) (any, error) {
 	}
 	output := filepath.Join(dir, "thumbnail.png")
 	cmd := exec.CommandContext(ctx, c.command,
-		"--kind", c.format.Kind, "--input", input, "--output", output, "--size", strconv.Itoa(extraSize))
+		"--kind", c.format.Kind, "--input", input, "--output", output, "--size", strconv.Itoa(c.size))
 	cmd.Dir = dir
 	cmd.Env = extraEnvironment(dir)
 	cmd.WaitDelay = 2 * time.Second
@@ -125,7 +133,7 @@ func (c ExtraConverter) Convert(r io.Reader) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extra thumbnail output is not PNG: %w", err)
 	}
-	if config.Width > extraSize || config.Height > extraSize || c.limit.exceeded(config.Width, config.Height) {
+	if config.Width > c.size || config.Height > c.size || c.limit.exceeded(config.Width, config.Height) {
 		return nil, thumbnailerErrors.ErrImageTooLarge
 	}
 	if _, err := preview.Seek(0, io.SeekStart); err != nil {

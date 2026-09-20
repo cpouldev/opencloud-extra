@@ -6,3 +6,7 @@
 **/node_modules
 **/tmp
 docs
+extras/web-preview/dist
+extras/web-preview/.__mf__temp
+extras/browser/test-results
+extras/browser/playwright-report

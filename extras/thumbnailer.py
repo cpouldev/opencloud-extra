@@ -37,6 +37,7 @@ MAX_OUTPUT = 128 * 1024 * 1024
 MAX_PREVIEW = 64 * 1024 * 1024
 MAX_XML = 8 * 1024 * 1024
 MAX_PIXELS = 64 * 1024 * 1024
+MAX_SIZE = 2048
 MAX_MEMBERS = 10000
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -627,8 +628,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     output_validated = False
     try:
-        if not 32 <= args.size <= 1024:
-            raise RenderError("thumbnail size must be between 32 and 1024")
+        if not 32 <= args.size <= MAX_SIZE:
+            raise RenderError(f"thumbnail size must be between 32 and {MAX_SIZE}")
         if args.input.is_symlink() or not args.input.is_file() or not 0 < args.input.stat().st_size <= MAX_INPUT:
             raise RenderError("input is not a bounded, nonempty regular file")
         if args.input.resolve() == args.output.resolve() or args.output.exists() or args.output.is_symlink():

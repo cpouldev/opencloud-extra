@@ -10,3 +10,4 @@ This repository is the downstream distribution `cpouldev/opencloud-extra`.
 - The supported scope excludes PostScript/EPS and 3D rendering. Illustrator support is limited to PDF-compatible AI files.
 - Validate converters using actual input files in the runtime image. A MIME allowlist or installed executable alone does not establish format support.
 - Preserve the downstream filename-aware `hasPreview` check in vendored Reva's `ocdav/propfind` handler when updating dependencies. The live preview smoke checks this integration.
+- Keep the bundled app under `extras/web-preview` compatible with the pinned upstream Web version. Preserve its embedded asset build and browser checks when merging Web upgrades; these checks gate publication on both architectures.

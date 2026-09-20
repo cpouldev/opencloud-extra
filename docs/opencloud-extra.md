@@ -59,6 +59,28 @@ an embedded preview. PostScript/EPS and 3D files are deliberately excluded.
 XCF rendering covers compatible 8-bit RGB/RGBA files; newer compression, high-bit
 depth, indexed-color, and live-filter variants may not render with ImageMagick.
 
+## Opening full previews
+
+The image bundles a **Rendered preview** web app. Clicking Illustrator,
+Photoshop, fonts, RAW, additional image formats, creative files, or comics opens
+the rendered image with zoom, pan, actual-size and fit-to-window controls.
+It loads a cached preview of up to 2048 pixels through OpenCloud's existing
+authenticated preview service. Files with smaller embedded previews retain
+their available detail. Unsupported contents show an explanation and a retry
+button.
+
+The ordinary image, PDF, SVG, audio, video and text viewers remain available.
+EPUB retains its reader. Office files use a configured editor when available;
+**Rendered preview** is also available as a first-page or first-slide fallback.
+This viewer displays an image; it does not edit Illustrator artwork or Photoshop
+layers. Existing format requirements and size limits still apply.
+
+The app is enabled automatically with the extra image, including deployments
+with existing data volumes. Recreate the OpenCloud containers with the updated
+image and reload the web page. There is no need to re-upload files or generate
+previews manually. Grid thumbnails and full previews are generated on demand
+and cached separately.
+
 ## Configuration and limits
 
 | Variable | Image default | Purpose |
@@ -69,10 +91,15 @@ depth, indexed-color, and live-filter variants may not render with ImageMagick.
 | `THUMBNAILS_MAX_CONCURRENT_REQUESTS` | `2` | Concurrent thumbnail request limit |
 | `THUMBNAILS_MAX_INPUT_WIDTH` / `THUMBNAILS_MAX_INPUT_HEIGHT` | Upstream defaults | Existing image decoder limits |
 
-Extra providers render an intermediate PNG of at most 1024 pixels on each side.
-The existing thumbnail service then applies the requested output size and caches
-the result. Higher requested resolutions cannot recover additional detail from
-that intermediate image. Files exceeding configured limits receive no preview.
+Extra providers use a 1024-pixel intermediate PNG for grid requests and up to
+2048 pixels for larger preview requests. The existing thumbnail service then
+applies the requested output size and caches the result. Higher requested
+resolutions cannot recover additional detail from that intermediate image.
+Files exceeding configured limits receive no preview.
+
+If you override `THUMBNAILS_RESOLUTIONS`, include `2048x2048` before any
+`512x2048` entry so fitted portrait previews keep their full resolution. The
+extra image's default configuration already does this.
 
 Extra sources are streamed to private temporary directories instead of being
 loaded entirely into the Go process. Allow temporary disk space for the configured

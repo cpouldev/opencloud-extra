@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -81,17 +82,46 @@ func TestExtraRejectsInvalidOutput(t *testing.T) {
 
 func TestExtraOutputDimensionLimit(t *testing.T) {
 	script := extraTestRenderer(t, `cp "$4" "$6"`)
-	for _, width := range []int{extraSize - 1, extraSize, extraSize + 1} {
-		converter := ForFile("video/mp4", "clip.mp4", map[string]any{"extraRenderer": script})
-		img, err := converter.Convert(bytes.NewReader(extraTestPNG(t, width)))
-		closeExtraImage(img)
-		if width > extraSize {
-			if !errors.Is(err, thumbnailerErrors.ErrImageTooLarge) {
-				t.Fatalf("width %d: expected output limit error, got %v", width, err)
-			}
-		} else if err != nil {
-			t.Fatalf("width %d: %v", width, err)
+	for _, size := range []int{1024, 2048} {
+		for _, width := range []int{size - 1, size, size + 1} {
+			t.Run(fmt.Sprintf("size_%d_output_%d", size, width), func(t *testing.T) {
+				converter := ForFile("video/mp4", "clip.mp4", map[string]any{
+					"extraRenderer": script, "targetSize": size,
+				})
+				img, err := converter.Convert(bytes.NewReader(extraTestPNG(t, width)))
+				defer closeExtraImage(img)
+				if width > size {
+					if !errors.Is(err, thumbnailerErrors.ErrImageTooLarge) {
+						t.Fatalf("expected output limit error, got %v", err)
+					}
+				} else if err != nil {
+					t.Fatalf("expected decoded preview, got %v", err)
+				}
+			})
 		}
+	}
+}
+
+func TestExtraRequestedRenderSize(t *testing.T) {
+	for _, tc := range []struct {
+		requested int
+		expected  int
+	}{
+		{-1, 1024}, {0, 1024}, {128, 1024},
+		{1023, 1024}, {1024, 1024}, {1025, 1025},
+		{2047, 2047}, {2048, 2048}, {2049, 2048},
+	} {
+		t.Run(fmt.Sprintf("requested_%d", tc.requested), func(t *testing.T) {
+			script := extraTestRenderer(t, fmt.Sprintf("test \"$8\" -eq %d\ncp \"$4\" \"$6\"", tc.expected))
+			converter := ForFile("image/vnd.adobe.photoshop", "artwork.psd", map[string]any{
+				"extraRenderer": script, "targetSize": tc.requested,
+			})
+			img, err := converter.Convert(bytes.NewReader(extraTestPNG(t, 4)))
+			defer closeExtraImage(img)
+			if err != nil {
+				t.Fatalf("renderer did not receive size %d: %v", tc.expected, err)
+			}
+		})
 	}
 }
 

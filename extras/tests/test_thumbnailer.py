@@ -243,7 +243,46 @@ class RendererTests(unittest.TestCase):
             stream.truncate(thumbnailer.MAX_INPUT + 1)
         self.assertIn("bounded", self.render(source, "text", success=False))
         source.write_text("hello")
-        self.assertIn("size", self.render(source, "text", success=False, size=2000))
+        self.assertIn("size", self.render(source, "text", success=False, size=2049))
+
+    def test_preview_size_boundaries(self):
+        for size in (31, 32, 33, 1023, 1024, 1025, 2047, 2048, 2049):
+            with self.subTest(size=size):
+                source = self.root / f"preview-{size}.txt"
+                source.write_text("OpenCloud Extra full preview\nRequested render size")
+                if size < 32 or size > 2048:
+                    self.assertIn("size", self.render(source, "text", success=False, size=size))
+                else:
+                    self.assertEqual(self.render(source, "text", size=size).size, (size, size))
+
+    def test_large_creative_previews(self):
+        self.require("pdftoppm", "magick", "vips")
+        for extension, kind in ((".ai", "illustrator"), (".psd", "photoshop"), (".svg", "svg")):
+            for width, height in ((2560, 1600), (1600, 2560)):
+                with self.subTest(extension=extension, width=width, height=height):
+                    source = self.root / f"artwork-{width}{extension}"
+                    if extension == ".svg":
+                        source.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"><rect width="{width}" height="{height}" fill="red"/></svg>')
+                    else:
+                        original = Image.new("RGB", (width, height), "red")
+                        if extension == ".ai":
+                            original.save(source, "PDF")
+                        else:
+                            png = self.root / "original.png"
+                            original.save(png)
+                            command(["magick", png, source])
+                    image = self.render(source, kind, size=2048)
+                    self.assertEqual(image.size, (2048, 1280) if width > height else (1280, 2048))
+                    red, green, blue = image.convert("RGB").getpixel((image.width // 2, image.height // 2))
+                    self.assertGreater(red, 200)
+                    self.assertLess(green + blue, 100)
+
+    def test_large_font_preview(self):
+        source = self.root / "specimen.ttf"
+        write_font(source)
+        image = self.render(source, "font", size=2048)
+        self.assertEqual(image.size, (2048, 1536))
+        self.assertTrue(any(low != high for low, high in image.getextrema()))
 
     def test_svg_formats(self):
         self.require("vips")

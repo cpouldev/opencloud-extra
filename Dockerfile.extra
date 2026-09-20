@@ -47,6 +47,14 @@ ENV THUMBNAILS_EXTRA_RENDERER=/usr/local/bin/opencloud-extra-thumbnail \
     SAL_USE_VCLPLUGIN=svp \
     PYTHONDONTWRITEBYTECODE=1
 
+FROM quay.io/opencloudeu/nodejs-ci:24 AS extra-web
+
+WORKDIR /extra-web
+COPY extras/web-preview/package*.json ./
+RUN npm ci --no-audit --no-fund
+COPY extras/web-preview/ ./
+RUN npm test && npm run build
+
 FROM quay.io/opencloudeu/nodejs-ci:24 AS generate
 
 WORKDIR /opencloud
@@ -56,6 +64,10 @@ COPY . /opencloud
 RUN git -c init.defaultBranch=build init && \
     git add -f services/web/assets && \
     make node-generate-prod
+
+# Embed the app after the upstream asset download (which cleans the asset tree).
+# Built-in apps remain available when an existing data volume is mounted.
+COPY --from=extra-web /extra-web/dist /opencloud/services/web/assets/apps/extra-preview
 
 FROM quay.io/opencloudeu/golang-ci:1.25 AS build
 

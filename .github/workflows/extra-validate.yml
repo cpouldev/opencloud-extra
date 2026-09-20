@@ -114,6 +114,26 @@ jobs:
             --mount "type=bind,source=$PWD,target=/src,readonly" \
             --entrypoint python3 "opencloud-extra:test-$ARCH" \
             /src/extras/container/preview-smoke.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: extras/browser/package-lock.json
+      - name: Open files in the web preview app
+        working-directory: extras/browser
+        env:
+          OPENCLOUD_EXTRA_TEST_IMAGE: opencloud-extra:test-${{ matrix.arch }}
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: extra-browser-failure-${{ matrix.arch }}
+          path: extras/browser/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Save the tested image
         if: inputs.save_images
         env:

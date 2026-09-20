@@ -5,6 +5,9 @@ additional thumbnails for videos (including HEVC), Photoshop, PDF-compatible
 Illustrator files, fonts, modern images, RAW photos, Office documents, creative
 archives, audio, books, and source files.
 
+The bundled **Rendered preview** app also opens design files, fonts, RAW images
+and other extra formats with zoom, pan and fitted previews up to 2048 pixels.
+
 - **Container:** `docker.io/cpoul/opencloud-extra:stable` (Linux amd64 and arm64).
 - **Stable branch:** `extra/stable`, based on upstream release tags.
 - **Maintenance:** daily upstream release checks, tested merges, and automatic
@@ -28,7 +31,7 @@ Never send this fork's customizations or automated pull requests upstream.
 > For general information about OpenCloud and how to install please visit [OpenCloud on Github](https://github.com/opencloud-eu/) and [OpenCloud GmbH](https://opencloud.eu).
 
 This fork contains the Go codebase for the OpenCloud backend services, together
-with the OpenCloud Extra thumbnail providers and release automation.
+with the OpenCloud Extra thumbnail providers, web preview app and release automation.
 
 ## Getting Involved
 

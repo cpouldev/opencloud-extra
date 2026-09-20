@@ -182,6 +182,7 @@ func (g Thumbnail) handleCS3Source(ctx context.Context, req *thumbnailssvc.GetTh
 	defer r.Close()
 	ppOpts := map[string]any{
 		"context":        ctx,
+		"targetSize":     max(tr.Resolution.Dx(), tr.Resolution.Dy()),
 		"extraRenderer":  g.preprocessorOpts.ExtraRenderer,
 		"extraTimeout":   g.preprocessorOpts.ExtraTimeout,
 		"maxInputBytes":  g.preprocessorOpts.MaxInputBytes,
@@ -287,6 +288,7 @@ func (g Thumbnail) handleWebdavSource(ctx context.Context, req *thumbnailssvc.Ge
 	defer r.Close()
 	ppOpts := map[string]any{
 		"context":        ctx,
+		"targetSize":     max(tr.Resolution.Dx(), tr.Resolution.Dy()),
 		"extraRenderer":  g.preprocessorOpts.ExtraRenderer,
 		"extraTimeout":   g.preprocessorOpts.ExtraTimeout,
 		"maxInputBytes":  g.preprocessorOpts.MaxInputBytes,

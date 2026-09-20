@@ -12,9 +12,13 @@ issue or release, and upstream is never installed as a push remote.
 2. Enable GitHub Actions and Issues in the fork. The workflows request only their
    required job-level `GITHUB_TOKEN` permissions; no GitHub personal token is used.
 3. Add `DOCKERHUB_TOKEN` as an Actions repository secret. The token belongs to
-   `cpoul` and must allow writing `cpoul/opencloud-extra` on Docker Hub. The first
-   publication creates this public repository if it does not exist, using the
+   `cpoul` and must allow writing `cpoul/opencloud-extra` on Docker Hub. Create
+   the public repository in Docker Hub once. If it is missing, publication tries
+   to create it using the
    [Docker Hub API](https://docs.docker.com/reference/api/hub/latest/operations/CreateRepository/).
+   A token that permits image pushes may lack repository-creation permission;
+   if creation returns HTTP 403, create the repository in Docker Hub and rerun
+   the failed publication job to reuse its tested image artifacts.
 4. Run **OpenCloud Extra stable release** on `extra/stable`. The same workflow also
    runs on pushes to that branch and daily at 05:23 UTC.
 
@@ -29,10 +33,10 @@ detection; automation never resets to upstream or discards the extras.
 
 Preparation uploads the exact candidate as a Git bundle. Separate native amd64
 and arm64 jobs restore that commit, run the targeted Go suites, build the final
-image, run runtime smoke checks and real converter tests, and save that tested
-image as an artifact. These jobs have read-only GitHub permissions and no Docker
-Hub credentials. Pull requests use the same validation workflow without saving
-release artifacts or publishing anything.
+image, run runtime smoke checks, real converter tests and browser preview tests,
+and save that tested image as an artifact. These jobs have read-only GitHub
+permissions and no Docker Hub credentials. Pull requests use the same validation
+workflow without saving release artifacts or publishing anything.
 
 After both architectures pass, the publication job checks that `extra/stable`
 still matches preparation's starting commit. It atomically fast-forwards the

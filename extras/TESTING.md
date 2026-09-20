@@ -68,3 +68,62 @@ no new UI. Gates 4 and 6 are deliberately excluded as described above.
 Generated fixtures keep tests small and deterministic. Tests must assert actual
 decoded output and failures, rather than merely checking that an executable or
 file extension is listed.
+
+## Full preview viewer
+
+```yaml
+test_strategy:
+  artifact: Bundled extra preview app and 2048-pixel rendering
+  rationale: Clicking an extra file now crosses the web app, authenticated preview API, converter and image display boundaries.
+  criticality: MEDIUM-HIGH
+  selected_types:
+    - rationale: Render-size selection, zoom bounds and loading/error transitions have branching behavior.
+      type: unit
+      size: small
+      framework: go test, Python unittest and web app tests
+      dependencies: [temporary files]
+      gate: Gate 1
+    - rationale: Larger real previews must preserve aspect ratio, permission checks and cache separation from grid thumbnails.
+      type: integration
+      size: medium
+      framework: authenticated preview smoke
+      dependencies: [built Docker image, converter tools]
+      gate: Gate 2
+    - rationale: File-handler registration and host SDK loading must be verified by opening actual files in OpenCloud Web.
+      type: e2e
+      size: large
+      framework: Playwright
+      dependencies: [Chromium, disposable OpenCloud container]
+      gate: Gate 3
+    - rationale: The app must be embedded in the image and automatically discovered with an existing data directory.
+      type: smoke
+      size: large
+      framework: container and browser smoke
+      dependencies: [built Docker image]
+      gate: Gate 5
+  rejected_types:
+    - reason: The app and API ship in one image; a separate consumer contract framework adds no deployment protection.
+      type: contract
+    - reason: Explicit file families and sizing boundaries cover the relevant finite cases without a new fuzzing framework.
+      type: property-based
+  deliberately_skipped:
+    - why: Real browser checks cover registration and interactions; declarative extension snapshots do not prove that a file opens.
+      what: Snapshots of route and file-handler declarations
+    - why: Existing converter tests already cover individual codecs; the viewer needs representative rendered-image families.
+      what: Repeating every codec fixture in the browser
+```
+
+Gate 0 is off because user-visible behavior changes. Gates 1, 2, 3 and 5 are on.
+Gates 4 and 6 are off for the reasons above.
+
+- AC-1: Open AI, PSD and a font from the file list in the extra preview app;
+  ordinary JPEG and PDF retain their existing viewers.
+- AC-2: Show loading and conversion failure states; support zoom, fit, pan and
+  closing back to files without a stale image.
+- AC-3: Request a fitted 2048-pixel preview through the existing authenticated
+  endpoint; retain denial of anonymous access to private files; open a public
+  link in a separate unauthenticated browser context.
+- AC-4: Check requested size boundaries around 1024 and 2048; render real output
+  larger than 1024; retain small grid dimensions and repeatable cached output.
+- AC-5: Discover the embedded application in the built image's web config and
+  load its module through the actual Web runtime on both image architectures.
