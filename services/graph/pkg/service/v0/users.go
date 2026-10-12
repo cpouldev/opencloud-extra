@@ -405,7 +405,7 @@ func (g Graph) PostUser(w http.ResponseWriter, r *http.Request) {
 		errorcode.InvalidRequest.Render(w, r, http.StatusBadRequest, "userType is a read-only attribute")
 		return
 	}
-	u.SetUserType("Member")
+	u.SetUserType(identity.UserTypeMember)
 
 	logger.Debug().Interface("user", u).Msg("calling create user on backend")
 	if u, err = g.identityBackend.CreateUser(r.Context(), *u); err != nil {
@@ -844,14 +844,21 @@ func (g Graph) PatchMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := changes.GetDisplayNameOk(); ok {
 		logger.Info().Interface("user", changes).Msg("could not update user: user is not allowed to change own displayname")
-		errorcode.InvalidRequest.Render(w, r, http.StatusBadRequest, "user is not allowed to change own displayname")
+		errorcode.AccessDenied.Render(w, r, http.StatusForbidden, "user is not allowed to change own displayname")
 		return
 	}
 	if _, ok := changes.GetMailOk(); ok {
 		logger.Info().Interface("user", changes).Msg("could not update user: user is not allowed to change own mail")
-		errorcode.InvalidRequest.Render(w, r, http.StatusBadRequest, "user is not allowed to change own mail")
+		errorcode.AccessDenied.Render(w, r, http.StatusForbidden, "user is not allowed to change own mail")
 		return
 	}
+
+	if changes.HasPasswordProfile() {
+		logger.Info().Interface("user", changes).Msg("could not update user: user is not allowed to change own password profile")
+		errorcode.AccessDenied.Render(w, r, http.StatusForbidden, "user is not allowed to change own password profile")
+		return
+	}
+
 	g.patchUser(w, r, userID, changes)
 }
 
@@ -876,7 +883,7 @@ func (g Graph) PatchUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := changes.GetPreferredLanguageOk(); ok {
 		logger.Info().Interface("user", changes).Msg("could not update user: user is not allowed to change other users language")
-		errorcode.InvalidRequest.Render(w, r, http.StatusBadRequest, "user is not allowed to change other users language")
+		errorcode.AccessDenied.Render(w, r, http.StatusForbidden, "user is not allowed to change other users language")
 		return
 	}
 

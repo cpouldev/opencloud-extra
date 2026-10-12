@@ -208,15 +208,15 @@ protobuf:
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT)
-	$(GOLANGCI_LINT) run --modules-download-mode vendor --timeout 15m0s --issues-exit-code 0 --out-format checkstyle > checkstyle.xml
+	$(GOLANGCI_LINT) run --modules-download-mode vendor --timeout 15m0s --issues-exit-code 0 --output.checkstyle.path checkstyle.xml
 
 .PHONY: ci-golangci-lint
 ci-golangci-lint:
-	$(GOLANGCI_LINT) run --modules-download-mode vendor --timeout 15m0s --issues-exit-code 0 --out-format checkstyle > checkstyle.xml
+	$(GOLANGCI_LINT) run --modules-download-mode vendor --timeout 15m0s --issues-exit-code 0 --output.checkstyle.path checkstyle.xml
 
 .PHONY: golangci-lint-fix
 golangci-lint-fix: $(GOLANGCI_LINT)
-	$(GOLANGCI_LINT) run --fix --modules-download-mode vendor --timeout 15m0s --issues-exit-code 0 --out-format checkstyle > checkstyle.xml
+	$(GOLANGCI_LINT) run --fix --modules-download-mode vendor --timeout 15m0s --issues-exit-code 0 --output.checkstyle.path checkstyle.xml
 
 .PHONY: test-gherkin-lint
 test-gherkin-lint:
@@ -261,21 +261,6 @@ ci-node-save-licenses:
 	@for mod in $(OC_MODULES); do \
         $(MAKE) --no-print-directory -C $$mod ci-node-save-licenses || exit 1; \
     done
-
-CHANGELOG_VERSION =
-
-.PHONY: changelog
-changelog: $(CALENS)
-ifndef CHANGELOG_VERSION
-	$(error CHANGELOG_VERSION is undefined)
-endif
-	mkdir -p opencloud/dist
-	$(CALENS) --version $(CHANGELOG_VERSION) -o opencloud/dist/CHANGELOG.md
-
-.PHONY: changelog-csv
-changelog-csv: $(CALENS)
-	mkdir -p opencloud/dist
-	$(CALENS) -t changelog/changelog-csv.tmpl -o opencloud/dist/changelog.csv
 
 .PHONY: govulncheck
 govulncheck: $(GOVULNCHECK)

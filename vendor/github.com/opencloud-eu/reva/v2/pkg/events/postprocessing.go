@@ -224,3 +224,34 @@ func (RestartPostprocessing) Unmarshal(v []byte) (interface{}, error) {
 	err := json.Unmarshal(v, &e)
 	return e, err
 }
+
+// CleanUpload can be emitted to clean a specific upload
+type CleanUpload struct {
+	UploadID   string
+	KeepUpload bool
+	Timestamp  *types.Timestamp
+}
+
+// Unmarshal to fulfill umarshaller interface
+func (CleanUpload) Unmarshal(v []byte) (interface{}, error) {
+	e := CleanUpload{}
+	err := json.Unmarshal(v, &e)
+	return e, err
+}
+
+// DeleteRevision can be emitted to delete a revision of a node. If Timestamp
+// is set exactly that revision is deleted. If Timestamp is nil the node's
+// current version is targeted and the node reverts to the pre-upload state,
+// unstalling it - only while the node is actually stuck in processing, so a
+// redelivered event is a no-op.
+type DeleteRevision struct {
+	ResourceID *provider.ResourceId
+	Timestamp  *types.Timestamp
+}
+
+// Unmarshal to fulfill umarshaller interface
+func (DeleteRevision) Unmarshal(v []byte) (interface{}, error) {
+	e := DeleteRevision{}
+	err := json.Unmarshal(v, &e)
+	return e, err
+}

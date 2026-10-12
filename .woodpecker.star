@@ -8,7 +8,7 @@ docker_repo_slug = "opencloudeu/opencloud"
 
 # images
 ALPINE_GIT = "alpine/git:latest"
-APACHE_TIKA = "apache/tika:4.1.0-SNAPSHOT"
+APACHE_TIKA = "apache/tika:4.1.0-full"
 CHKO_DOCKER_PUSHRM = "chko/docker-pushrm:1"
 CODACY_COVERAGE_REPORTER = "codacy/codacy-coverage-reporter:14.1.3"
 COLLABORA_CODE = "collabora/code:24.04.5.1.1"
@@ -19,7 +19,7 @@ OC_CI_ALPINE = "owncloudci/alpine:latest"
 OC_CI_BAZEL_BUILDIFIER = "quay.io/opencloudeu/bazel-buildifier-ci:latest"
 OC_CI_CLAMAVD = "quay.io/opencloudeu/clamav-ci:latest"
 OC_CI_DRONE_ANSIBLE = "owncloudci/drone-ansible:latest"
-OC_CI_GOLANG = "quay.io/opencloudeu/golang-ci:1.25"
+OC_CI_GOLANG = "quay.io/opencloudeu/golang-ci:1.26"
 OC_CI_NODEJS = "quay.io/opencloudeu/nodejs-ci:24"
 OC_CI_NODEJS_ALPINE = "quay.io/opencloudeu/nodejs-alpine-ci:24"
 OC_CI_PHP = "quay.io/opencloudeu/php-alpine-ci:%s"
@@ -229,6 +229,12 @@ config = {
             "suites": [
                 "apiSharingNgLinkSharePermission",
                 "apiSharingNgLinkShareRoot",
+            ],
+            "skip": False,
+        },
+        "sharingNgAdditionalShareRole": {
+            "suites": [
+                "apiSharingNgAdditionalShareRole",
             ],
             "skip": False,
         },
@@ -1307,9 +1313,9 @@ def localApiTestPipeline(ctx):
                 if ctx.build.event == "cron":
                     params["storages"] = OPENCLOUD_STORAGES
 
-                    # skip CLI tests in nightly pipeline
+                    # run CLI tests only with decomposed storage in the nightly
                     if name.startswith("cli"):
-                        continue
+                        params["storages"] = ["decomposed"]
 
                 # use decomposed storage if specified in the PR title
                 if "[decomposed]" in ctx.build.title.lower():
@@ -2310,7 +2316,7 @@ def genDocsPr(ctx):
         "steps": [
             {
                 "name": "make-docs-pr",
-                "image": "quay.io/opencloudeu/golang-ci",
+                "image": OC_CI_GOLANG,
                 "pull": True,
                 "environment": {
                     "GH_TOKEN": {
@@ -2515,6 +2521,7 @@ def opencloudServer(storage = "decomposed", depends_on = [], deploy_type = "", e
         "WEBFINGER_DEBUG_ADDR": "0.0.0.0:9279",
         "STORAGE_USERS_POSIX_SCAN_DEBOUNCE_DELAY": 0,
         "OC_MACHINE_AUTH_API_KEY": MACHINE_AUTH_API_KEY,
+        "GRAPH_ENABLE_GUEST_INVITES": True,
     }
 
     if storage == "posix":

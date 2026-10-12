@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	appproviderv1beta1 "github.com/cs3org/go-cs3apis/cs3/app/provider/v1beta1"
 	auth "github.com/cs3org/go-cs3apis/cs3/auth/provider/v1beta1"
@@ -17,8 +18,17 @@ import (
 	link "github.com/cs3org/go-cs3apis/cs3/sharing/link/v1beta1"
 	providerv1beta1 "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typesv1beta1 "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
+	"github.com/golang-jwt/jwt/v5"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/status"
+	"github.com/opencloud-eu/reva/v2/pkg/utils"
+	cs3mocks "github.com/opencloud-eu/reva/v2/tests/cs3mocks/mocks"
+	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
+
+	"github.com/opencloud-eu/opencloud/pkg/conversions"
 	"github.com/opencloud-eu/opencloud/pkg/shared"
 	collabmocks "github.com/opencloud-eu/opencloud/services/collaboration/mocks"
 	"github.com/opencloud-eu/opencloud/services/collaboration/pkg/config"
@@ -26,12 +36,6 @@ import (
 	"github.com/opencloud-eu/opencloud/services/collaboration/pkg/connector/fileinfo"
 	"github.com/opencloud-eu/opencloud/services/collaboration/pkg/middleware"
 	"github.com/opencloud-eu/opencloud/services/graph/mocks"
-	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
-	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/status"
-	"github.com/opencloud-eu/reva/v2/pkg/utils"
-	cs3mocks "github.com/opencloud-eu/reva/v2/tests/cs3mocks/mocks"
-	"github.com/stretchr/testify/mock"
-	"google.golang.org/grpc"
 )
 
 var _ = Describe("FileConnector", func() {
@@ -67,10 +71,19 @@ var _ = Describe("FileConnector", func() {
 		gatewaySelector.On("Next").Return(gatewayClient, nil)
 		fc = connector.NewFileConnector(gatewaySelector, cfg, nil, nil)
 
+		// PutRelativeFile mints a wopi token from this one and verifies it
+		now := time.Now()
+		accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"aud": "reva",
+			"iss": "https://cloud.opencloud.test",
+			"iat": now.Unix(),
+			"exp": now.Add(5 * time.Hour).Unix(),
+			"sub": "alice",
+		}).SignedString([]byte(cfg.TokenManager.JWTSecret))
+		Expect(err).ToNot(HaveOccurred())
+
 		wopiCtx = middleware.WopiContext{
-			// a real token is needed for the PutRelativeFileSuggested tests
-			// although we aren't checking anything inside the token
-			AccessToken: "eyJhbGciOiJQUzI1NiIsImtpZCI6InByaXZhdGUta2V5IiwidHlwIjoiSldUIn0.eyJhdWQiOiJ3ZWIiLCJleHAiOjE3MjAwOTIyODAsImlhdCI6MTcyMDA5MTk4MCwiaXNzIjoiaHR0cHM6Ly9vY2lzLmpwLnNvbGlkZ2Vhci5wcnYiLCJqdGkiOiJmQldpN0FYaFFQdUhhaDJDV0VQVFFLcENmZ3BGbEFpTCIsImxnLmkiOnsiZG4iOiJicm8iLCJpZCI6Im93bkNsb3VkVVVJRD1mYWYxMTY0Ny03NDUxLTRiOWEtYmZmZS0zYjVkZGNjNTk3MmIiLCJ1biI6ImJyb3RhdG8ifSwibGcucCI6ImlkZW50aWZpZXItbGRhcCIsImxnLnQiOiIxIiwic2NwIjoib3BlbmlkIHByb2ZpbGUgZW1haWwiLCJzdWIiOiJjQXZ1elg4Z1hMWmRpWHgtQDFOV1RKdENQRHFVSjQ0bnQ0NkZ0RDlwNUw3dGplUEZkWk1WSjlFMzBOeDItZHVpN0hLQ0x4QWlXYUNUdGJYNTExSmNkSHcifQ.StpQpE4ipxk8Nhk6xgob1Tovbk6bcUVs5-fkej2hIoKoJKfR2OY-CiFQ3wwgEcFro8notxeVfOmxs36z_ezFeJBZRbxpSggcr77LFtQwlsWvD5AuAgLZN1otdvULehunXE_DtxRJZ1rqnsOBT03zKOZLx8Q7QTy6DeRuf1KQtCIowa9D4ymPM4TTmtQdiW2XjByO3OCLFEMVBfDFGPibR6gMnftGQ5kfiZGDTUVCauEXwE-msZVZ42QY-wFRppX_RIL1Z0p6T4dr_6_y-VM1lNYJ5-dB5c5rg_c03Xu1y_TIxs31-8--dtUyZmBVOZFk8bB9msNk-iaOEjzKeUZLymo_-2qVYvXxzNrkq1QA8luaLR6jec_CRT2P8wsB2nyebFU6_myKe34m6f8uqGhOzcOwPB4TpoxPx4ucQgo1CQJwQZHZsZ7Q6TVYZUXJdWwzzMuvJXmnn36iybw0Ub6On4sGKj3gHetjoJg8VnL-TQkBvf1iHX2ktRG3Nq2rnPrB2OTpi2rLpleWg_s8Y8FXxIgYqM0JG8kO1n5RPGMeYQG7qd6f9wdcaPIvgxCa_HsZtMr7eGcDzZtxp-NivgJOS6ode0ZAJ3wGU-AVhmyshpds3DFECcvkBcP_4dD52AXiAq9X3UVkVdNsxs_yB9P7zBcdsKsD6QDJv5gf-6DEu34",
+			AccessToken: accessToken,
 			FileReference: &providerv1beta1.Reference{
 				ResourceId: &providerv1beta1.ResourceId{
 					StorageId: "abc",
@@ -1709,6 +1722,7 @@ var _ = Describe("FileConnector", func() {
 				OwnerID:                    "61616262636340637573746f6d496470", // hex of aabbcc@customIdp
 				Size:                       int64(998877),
 				Version:                    "v162738490",
+				LastModifiedTime:           "1970-07-08T08:30:49.0000000Z",
 				BaseFileName:               "test.txt",
 				BreadcrumbDocName:          "test.txt",
 				BreadcrumbFolderName:       "/path/to",
@@ -1889,6 +1903,8 @@ var _ = Describe("FileConnector", func() {
 			expectedFileInfo := &fileinfo.OnlyOffice{
 				Version:                 "v162738490",
 				BaseFileName:            "test.txt",
+				Size:                    conversions.ToPointer(int64(998877)),
+				LastModifiedTime:        "1970-07-08T08:30:49.0000000Z",
 				BreadcrumbDocName:       "test.txt",
 				BreadcrumbFolderName:    "/path/to",
 				BreadcrumbFolderURL:     "https://cloud.opencloud.test/s/ABC123",
@@ -2071,6 +2087,7 @@ var _ = Describe("FileConnector", func() {
 			expectedFileInfo := &fileinfo.OnlyOffice{
 				Version:                 "v162738490",
 				BaseFileName:            "test.txt",
+				LastModifiedTime:        "1970-07-08T08:30:49.0000000Z",
 				BreadcrumbDocName:       "test.txt",
 				BreadcrumbFolderName:    "/path/to",
 				BreadcrumbFolderURL:     "https://cloud.opencloud.test/f/storageid$spaceid%21parentopaqueid",
@@ -2108,6 +2125,86 @@ var _ = Describe("FileConnector", func() {
 			// the url is using a generated access token which always has a new ttl
 			// so we can't compare the whole url
 			Expect(templateSource).To(HavePrefix(expectedTemplateSource))
+		})
+
+		Describe("Size and LastModifiedTime", func() {
+			statFile := func(ctx context.Context, filePath string, size uint64, mtime *typesv1beta1.Timestamp) {
+				gatewayClient.On("Stat", mock.Anything, mock.Anything).Times(1).Return(&providerv1beta1.StatResponse{
+					Status: status.NewOK(ctx),
+					Info: &providerv1beta1.ResourceInfo{
+						Owner: &userv1beta1.UserId{
+							Idp:      "customIdp",
+							OpaqueId: "aabbcc",
+							Type:     userv1beta1.UserType_USER_TYPE_PRIMARY,
+						},
+						Size:  size,
+						Mtime: mtime,
+						Path:  filePath,
+						Id: &providerv1beta1.ResourceId{
+							StorageId: "storageid",
+							OpaqueId:  "opaqueid",
+							SpaceId:   "spaceid",
+						},
+						ParentId: &providerv1beta1.ResourceId{
+							StorageId: "storageid",
+							OpaqueId:  "parentopaqueid",
+							SpaceId:   "spaceid",
+						},
+					},
+				}, nil)
+			}
+
+			var ctx context.Context
+
+			BeforeEach(func() {
+				ctx = middleware.WopiContextToCtx(context.Background(), wopiCtx)
+				// an empty user takes the guest path, no CheckPermission needed
+				ctx = ctxpkg.ContextSetUser(ctx, &userv1beta1.User{})
+				cfg.App.Name = "EuroOffice"
+				cfg.App.Product = "OnlyOffice"
+			})
+
+			It("keeps the zero size of an empty pdf for EuroOffice", func() {
+				statFile(ctx, "/path/to/form.pdf", 0, &typesv1beta1.Timestamp{Seconds: uint64(16273849)})
+
+				response, err := fc.CheckFileInfo(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.Body.(*fileinfo.OnlyOffice).Size).To(Equal(conversions.ToPointer(int64(0))))
+			})
+
+			It("drops the zero size of an empty ods for EuroOffice", func() {
+				statFile(ctx, "/path/to/sheet.ods", 0, &typesv1beta1.Timestamp{Seconds: uint64(16273849)})
+
+				response, err := fc.CheckFileInfo(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.Body.(*fileinfo.OnlyOffice).Size).To(BeNil())
+			})
+
+			It("keeps the size of a filled ods for EuroOffice", func() {
+				statFile(ctx, "/path/to/sheet.ods", 998877, &typesv1beta1.Timestamp{Seconds: uint64(16273849)})
+
+				response, err := fc.CheckFileInfo(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.Body.(*fileinfo.OnlyOffice).Size).To(Equal(conversions.ToPointer(int64(998877))))
+			})
+
+			It("takes LastModifiedTime from the mtime", func() {
+				statFile(ctx, "/path/to/test.txt", 998877, &typesv1beta1.Timestamp{Seconds: uint64(16273849), Nanos: uint32(500)})
+
+				response, err := fc.CheckFileInfo(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response.Body.(*fileinfo.OnlyOffice).LastModifiedTime).To(Equal("1970-07-08T08:30:49.0000005Z"))
+			})
+
+			It("falls back to now when the file has no mtime", func() {
+				statFile(ctx, "/path/to/test.txt", 998877, nil)
+
+				response, err := fc.CheckFileInfo(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				lastModified, perr := time.Parse("2006-01-02T15:04:05.0000000Z", response.Body.(*fileinfo.OnlyOffice).LastModifiedTime)
+				Expect(perr).ToNot(HaveOccurred())
+				Expect(lastModified).To(BeTemporally("~", time.Now().UTC(), time.Minute))
+			})
 		})
 	})
 
