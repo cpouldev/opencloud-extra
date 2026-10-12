@@ -1,83 +1,50 @@
 # OpenCloud Extra
 
-OpenCloud Extra is an independent downstream distribution of OpenCloud with
-additional thumbnails for videos (including HEVC), Photoshop, PDF-compatible
-Illustrator files, fonts, modern images, RAW photos, Office documents, creative
-archives, audio, books, and source files.
+OpenCloud Extra is our fork of [OpenCloud](https://github.com/opencloud-eu/opencloud),
+built for the creative files, documents and media we use every day. It adds more
+thumbnails, previews and useful file details, packaged in a ready-to-run Docker
+image.
 
-OpenCloud's native **Preview** gallery also opens design files, fonts, RAW images
-and other extra formats, using its thumbnail strip and existing controls.
-Quick Look adds Space-to-preview; the native Details sidebar shows source
-dimensions, color profiles, media codecs and font details.
+This fork is **vibe coded**. We run it internally for our own workflows, where it
+has been running flawlessly. We build and maintain it around those workflows,
+and share it for anyone who finds the same extras useful.
 
-- **Container:** `docker.io/cpoul/opencloud-extra:stable` (Linux amd64 and arm64).
-- **Stable branch:** `extra/stable`, based on upstream release tags.
-- **Maintenance:** daily upstream release checks, tested merges, and automatic
-  container publication. Custom work and automation stay in this fork.
-- **Setup, formats, limits, and releases:** [OpenCloud Extra guide](docs/opencloud-extra.md).
+The fork adds:
 
-This project is not an official OpenCloud release. Report downstream problems and
-propose changes in [cpouldev/opencloud-extra](https://github.com/cpouldev/opencloud-extra).
-Never send this fork's customizations or automated pull requests upstream.
+- **More thumbnails:** Photoshop, PDF-compatible Illustrator files, fonts,
+  camera RAW, HEIC/AVIF/JXL and other images, Office documents, creative archives,
+  books, audio artwork and source files. Video thumbnails include HEVC.
+- **Previews in the native gallery:** open design files, fonts, RAW photos and
+  other extra formats using OpenCloud's existing photo roll, navigation, zoom,
+  rotation and fullscreen controls. Rendered previews reach up to 2048 pixels.
+- **Source details:** dimensions, color profiles, media codecs and font
+  information in the native Details sidebar, including its mobile layout.
+- **A complete container:** the converters and Web integration are included for
+  Linux amd64 and arm64.
+- **Upstream release tracking:** daily release checks merge upstream releases
+  while preserving the extras. Container builds, real-file conversions and
+  browser checks gate publication.
 
-![OpenCloud logo](https://raw.githubusercontent.com/opencloud-eu/opencloud/refs/heads/main/opencloud_logo.png)
+Use this image in your OpenCloud deployment:
 
-[![status-badge](https://ci.opencloud.rocks/api/badges/3/status.svg)](https://ci.opencloud.rocks/repos/3)
- [![Matrix](https://img.shields.io/matrix/opencloud%3Amatrix.org?logo=matrix)](https://app.element.io/#/room/#opencloud:matrix.org)
- [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-
-# Server Backend
-
-
-> [!TIP]
-> For general information about OpenCloud and how to install please visit [OpenCloud on Github](https://github.com/opencloud-eu/) and [OpenCloud GmbH](https://opencloud.eu).
-
-This fork contains the Go codebase for the OpenCloud backend services, together
-with the OpenCloud Extra thumbnail providers, web preview app and release automation.
-
-## Getting Involved
-
-The OpenCloud server is released under [Apache 2.0](https://github.com/opencloud-eu/opencloud/blob/main/LICENSE).
-For OpenCloud Extra, use this fork's [issues](https://github.com/cpouldev/opencloud-extra/issues)
-and [pull requests](https://github.com/cpouldev/opencloud-extra/pulls).
-Read [AGENTS.md](AGENTS.md) before working on automation: upstream access is read-only.
-
-## Build OpenCloud
-
-To build the backend, follow these instructions:
-
-Generate the assets needed by e.g., the web UI and the builtin IDP
-
-``` console
-make generate
+```yaml
+image: docker.io/cpoul/opencloud-extra:stable
 ```
 
-Then compile the `opencloud` binary
+Keep your existing configuration and data volumes. For setup, supported formats,
+configuration limits and version pinning, see the
+[OpenCloud Extra guide](docs/opencloud-extra.md).
 
-``` console
-make -C opencloud build
-```
-That will produce the binary `opencloud/bin/opencloud`. It can be started as a local test instance right away with a two step command:
+Illustrator files need PDF-compatible content; Photoshop files need a saved
+composite. PostScript/EPS and 3D rendering are outside this fork's scope. The
+[format guide](docs/opencloud-extra.md#thumbnail-formats) covers the details.
 
-```bash
-opencloud/bin/opencloud init && opencloud/bin/opencloud server
-```
-This creates a server configuration (by default in `$HOME/.opencloud`) and starts the server.
+Development happens on `extra/stable`, based on upstream release tags. Use this
+fork's [issues](https://github.com/cpouldev/opencloud-extra/issues) and
+[pull requests](https://github.com/cpouldev/opencloud-extra/pulls) for the extras.
+Build and validation instructions are in the
+[container guide](extras/container/README.md); contribution boundaries are in
+[AGENTS.md](AGENTS.md).
 
-For more setup- and installation options consult the [Development Documentation](https://docs.opencloud.eu/).
-
-## Technology
-
-Important information for contributors about the technology in use.
-
-### Authentication
-
-The OpenCloud backend authenticates users via [OpenID Connect](https://openid.net/connect/) using either an external IdP like [Keycloak](https://www.keycloak.org/) or the embedded [LibreGraph Connect](https://github.com/libregraph/lico) identity provider.
-
-### Database
-
-The OpenCloud backend does not use a database. It stores all data in the filesystem. By default, the root directory of the backend is `$HOME/.opencloud/`.
-
-## Security
-
-If you find a security-related issue, please contact [security@opencloud.eu](mailto:security@opencloud.eu) immediately.
+OpenCloud's backend retains its [Apache 2.0 license](LICENSE). Web components and
+dependencies retain their respective licenses and notices.
