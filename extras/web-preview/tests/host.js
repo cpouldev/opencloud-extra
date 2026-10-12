@@ -12,14 +12,6 @@ export function useFileActions() {
   return globalThis.__extraFileActions
 }
 
-export function useResourcesStore() {
-  return globalThis.__extraResourcesStore
-}
-
-export function useSpacesStore() {
-  return globalThis.__extraSpacesStore
-}
-
 export function useSelectedResources() {
   return globalThis.__extraSelectedResources
 }

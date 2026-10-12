@@ -11,7 +11,7 @@ a moved tag, a changed package manager, local source edits or incompatible patch
 hunks. Updating Web requires reviewing the patch and pin together. Upstream is
 read-only; all downstream work stays in this repository.
 
-`apply.mjs` applies `native-gallery.patch` and copies only the five integration
+`apply.mjs` applies `native-gallery.patch` and copies only the four integration
 modules from `extras/web-preview/src` into
 `packages/web-app-preview/src/extra`. Type declarations in that directory and
 native component tests are included in the patch. Copying the modules preserves

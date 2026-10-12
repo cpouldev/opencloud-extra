@@ -7,11 +7,10 @@ or separately loaded `extra-preview` application.
 The native app retains `preview-media`, its photo roll, media stage and bottom
 controls. Its downstream source patch extends file registration and loading for
 server-rendered extra formats. The normal PDF, Office and EPUB handlers retain
-priority; their gallery preview is available through Quick Look or a fallback
-Preview action.
+priority. Office and EPUB files also offer a fallback Preview action.
 
-`useExtraPreview` registers the guarded Space opener, Quick Look/fallback actions,
-a redirect for old `/extra-preview/` links, and source metadata rows in
+`useExtraPreview` registers the fallback Preview action, a redirect for old
+`/extra-preview/` links, and source metadata rows in
 `app.files.sidebar.file-details.table`. `AssetDetails.vue` consumes the native
 Details panel's injected resource and space refs. The host handles its sidebar,
 mobile drawer, current selection and ordinary file facts.

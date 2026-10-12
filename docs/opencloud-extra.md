@@ -71,9 +71,10 @@ available detail. Failed conversions show an explanation and a retry button.
 
 Native audio/video playback remains available, subject to browser codec support.
 PDF clicks retain the PDF viewer, EPUB retains its reader, and Office files use
-a configured editor when available. **Quick Look** can show their first page,
-slide or cover in the gallery. Extra media formats outside the native player's
-supported MIME types can show a rendered frame or artwork through Quick Look.
+a configured editor when available. Office and EPUB files also offer a fallback
+**Preview** action for their first page, slide or cover. The gallery's thumbnail
+strip can show PDF first pages and rendered frames or artwork for extra media
+formats outside the native player's supported MIME types.
 Rendered previews do not edit Illustrator artwork or Photoshop layers. Existing
 format requirements and size limits still apply.
 
@@ -83,16 +84,13 @@ the updated image and reload the web page. There is no need to re-upload files
 or generate previews manually. Grid thumbnails and full previews are generated
 on demand and cached separately.
 
-### Quick Look and file information
+### Gallery navigation and file information
 
-In a folder's table or tile view, select one supported file and press **Space**
-to open the native gallery. **Left/Right**, the previous/next buttons and the
-thumbnail strip browse its files in the gallery's normal order. Navigation wraps
-within that folder or public share. Single-file shares show only the shared file.
-**Space** closes the gallery when its stage has focus; **Escape** and the native
-top-bar close button also return to the previous view. Inputs, buttons and native
-media controls keep their usual keyboard behavior. Search views retain their
-existing keyboard behavior. The context menu also offers **Quick Look**.
+Click a supported extra file in a folder's table or tile view to open the native
+gallery. **Left/Right**, the previous/next buttons and the thumbnail strip browse
+its files in the gallery's normal order. Navigation wraps within that folder or
+public share. Single-file shares show only the shared file. **Escape** and the
+native top-bar close button return to the previous view.
 
 The **Asset information** icon in the existing bottom toolbar opens the native
 **Details** sidebar. Source properties appear beside OpenCloud's normal file

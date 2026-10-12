@@ -34,6 +34,13 @@ export function unavailableReason(resource) {
   return 'You do not have permission to preview this file.'
 }
 
+export function canPreviewFallback(resource) {
+  return Boolean(resource?.id && !resource.isFolder && !resource.driveType &&
+    (!resource.type || resource.type === 'file') &&
+    !resource.processing && !resource.disabled && !Object.hasOwn(resource, 'ddate') &&
+    !unavailableReason(resource) && fallbackExtensions.includes(extensionOf(resource)))
+}
+
 export function conversionHint(resource) {
   const extension = extensionOf(resource)
   if (extension === 'ai') return 'Illustrator files must be saved with Create PDF Compatible File enabled.'

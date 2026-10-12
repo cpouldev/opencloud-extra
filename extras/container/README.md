@@ -63,11 +63,11 @@ docker run --rm --network none -v "$PWD:/src:ro" \
 The browser suite starts a disposable, seeded server on `127.0.0.1:9200`, signs
 in through OpenCloud's login page, and opens actual files. It checks extra files
 inside the native gallery, its photo roll, zoom/pan/rotation/reset/fullscreen,
-loading and error states, and ordinary JPEG/PDF behavior. Quick Look checks cover
-table/tile keyboard opening, gallery navigation, public share boundaries and
-closing. Native Details checks source dimensions, codecs, fonts, deferred loading
-and absence of original downloads for rendered extras. Mobile checks use the
-host's existing Details drawer.
+loading and error states, and ordinary JPEG/PDF behavior. Table/tile checks cover
+native Space-key selection, opening files by clicking, gallery navigation, public
+share boundaries and closing with Escape. Native Details checks source dimensions,
+codecs, fonts, deferred loading and absence of original downloads for rendered
+extras. Mobile checks use the host's existing Details drawer.
 The server and its temporary data are removed afterward. Port 9200 must be free.
 
 ```sh

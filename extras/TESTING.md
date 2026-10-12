@@ -129,15 +129,15 @@ Gates 4 and 6 are off for the reasons above.
 - AC-5: Load the patched native gallery through the actual Web runtime on both
   image architectures, without a separate extra-preview application.
 
-## Quick Look and asset information
+## Native file navigation and asset information
 
 ```yaml
 test_strategy:
-  artifact: Keyboard file navigation and source asset metadata
-  rationale: Keyboard handling crosses host selection and routes; source metadata crosses authenticated storage and untrusted decoder boundaries.
+  artifact: Native file navigation and source asset metadata
+  rationale: File actions cross host routes; source metadata crosses authenticated storage and untrusted decoder boundaries.
   criticality: HIGH
   selected_types:
-    - rationale: Selection, keyboard guards, formatting, field validation and cache identity contain branching logic.
+    - rationale: Fallback eligibility, formatting, field validation and cache identity contain branching logic.
       type: unit
       size: small
       framework: Vitest and go test
@@ -149,7 +149,7 @@ test_strategy:
       framework: Python unittest and go test
       dependencies: [temporary files, runtime converter tools, local HTTP sources]
       gate: Gate 2
-    - rationale: Real host selection, keyboard capture, sorted rows and signed public links cannot be established with component mocks.
+    - rationale: Native Space-key selection, file clicks, sorted rows and signed public links cannot be established with component mocks.
       type: e2e
       size: large
       framework: Playwright
@@ -173,8 +173,12 @@ test_strategy:
       what: A new performance or load-test harness
 ```
 
-- Space opens the selected file in table and tile views; Space/Escape closes;
-  input fields, dialogs, modified shortcuts and unrelated routes are untouched.
+- AC-6: Space retains native checkbox selection in table/tile views and public
+  folders without opening a preview. Clicking extra files opens the gallery;
+  Space leaves it open and Escape closes it.
+- AC-7: The fallback Preview action opens eligible Office/EPUB files in personal
+  folders and shares. Empty/multiple selections, unavailable files and missing
+  space contexts do not navigate. Permission failures remain contained.
 - Previous/next follow the native gallery order, exclude folders and inaccessible
   files, and wrap within that folder or public share.
 - Navigating during a pending preview or metadata request cannot display the
@@ -190,7 +194,7 @@ test_strategy:
 ## Native gallery integration
 
 The native gallery replaces the separate rendered viewer. Gates 1, 2, 3 and 5
-remain on: filename classification and keyboard guards need unit tests; native
+remain on: filename classification and fallback eligibility need unit tests; native
 Web components and Details injection need integration coverage; actual gallery
 controls, public links and mobile layouts need browser checks; both native
 architecture images gate release. Gate 0 is off because behavior changes. Gate 4
@@ -204,8 +208,8 @@ and metadata-schema suites remain the evidence for their unchanged boundaries.
   working. Rendered extras never cause original-file downloads in the browser.
 - Native zoom, pan, rotation, reset, fullscreen and photo-roll selection work on
   rendered images. Folder order and return context follow native gallery rules.
-- Space opens from table/tile selection and closes the gallery while yielding
-  to inputs, dialogs, modified/repeated keys and native media controls.
+- Space keeps native file selection and media controls; gallery opening uses
+  file actions and closing uses Escape or the native close button.
 - Native Details displays source properties for its currently selected file,
   loads on demand and cannot show stale facts after navigation or closure.
 - Failed conversions leave native navigation usable and offer useful recovery.

@@ -1,27 +1,19 @@
 import { computed, markRaw } from 'vue'
-import {
-  useFileActions,
-  useResourcesStore,
-  useRouter,
-  useSpacesStore
-} from '@opencloud-eu/web-pkg'
+import { useFileActions, useRouter } from '@opencloud-eu/web-pkg'
 import type { ClassicApplicationScript, Extension, FileActionOptions } from '@opencloud-eu/web-pkg'
 import AssetDetails from './AssetDetails.vue'
-import { extensionOf, fallbackExtensions } from './formats.js'
-import { createQuickLookController, isQuickLookEligible, previewRouteName } from './quicklook.js'
+import { canPreviewFallback } from './formats.js'
+
+const previewRouteName = 'preview-media'
 
 // Called by the native preview application. There is no second application,
 // viewer route, toolbar or details panel to keep in sync with the gallery.
-export function useExtraPreview(nativeMimeTypes: string[] = []): Pick<ClassicApplicationScript, 'extensions' | 'mounted'> {
+export function useExtraPreview(): Pick<ClassicApplicationScript, 'extensions' | 'mounted'> {
   const router = useRouter()
   const { getEditorRouteOpts } = useFileActions()
-  const quickLook = createQuickLookController({
-    router,
-    resourcesStore: useResourcesStore(),
-    spacesStore: useSpacesStore(),
-    getEditorRouteOpts,
-    nativeMimeTypes
-  })
+  const previewRoute = ({ space, resources }: FileActionOptions) => getEditorRouteOpts(
+    previewRouteName, space, resources[0], space.driveType === 'share' ? space.id : undefined
+  )
   const removeLegacyRoute = router.addRoute({
     path: '/extra-preview/:driveAliasAndItem(.*)?',
     name: 'extra-preview-file',
@@ -31,29 +23,12 @@ export function useExtraPreview(nativeMimeTypes: string[] = []): Pick<ClassicApp
   })
 
   return {
-    mounted: ({ instance }) => instance.onUnmount(() => {
-      quickLook.dispose()
-      removeLegacyRoute()
-    }),
+    mounted: ({ instance }) => instance.onUnmount(removeLegacyRoute),
     extensions: computed<Extension[]>(() => [{
       id: 'extra-asset-details',
       type: 'customComponent',
       extensionPointIds: ['app.files.sidebar.file-details.table'],
       content: markRaw(AssetDetails)
-    }, {
-      id: 'extra-quick-look',
-      type: 'action',
-      extensionPointIds: ['global.files.context-actions'],
-      action: {
-        name: 'extra-quick-look',
-        icon: 'eye',
-        category: 'secondary',
-        label: () => 'Quick Look',
-        shortcut: 'Space',
-        handler: ({ space, resources }: FileActionOptions) => quickLook.open(space, resources[0]),
-        isVisible: ({ space, resources }: FileActionOptions) => Boolean(space?.id) &&
-          resources.length === 1 && isQuickLookEligible(resources[0], nativeMimeTypes)
-      }
     }, {
       id: 'extra-preview-fallback',
       type: 'action',
@@ -63,14 +38,14 @@ export function useExtraPreview(nativeMimeTypes: string[] = []): Pick<ClassicApp
         icon: 'eye',
         category: 'primary',
         label: () => 'Preview',
-        handler: ({ space, resources }: FileActionOptions) => quickLook.open(space, resources[0]),
-        route: ({ space, resources }: FileActionOptions) => getEditorRouteOpts(
-          previewRouteName, space, resources[0], space.driveType === 'share' ? space.id : undefined
-        ),
+        handler: (options: FileActionOptions) => {
+          if (!options.space?.id || options.resources.length !== 1 || !canPreviewFallback(options.resources[0])) return
+          return router.push(previewRoute(options))
+        },
+        route: previewRoute,
         // Native Office/EPUB editors still rank ahead of this fallback action.
         isVisible: ({ space, resources }: FileActionOptions) => Boolean(space?.id) && resources.length === 1 &&
-          fallbackExtensions.includes(extensionOf(resources[0])) &&
-          isQuickLookEligible(resources[0], nativeMimeTypes)
+          canPreviewFallback(resources[0])
       }
     }])
   }

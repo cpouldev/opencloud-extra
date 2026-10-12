@@ -4,7 +4,7 @@ import { authHeaders, expectNativeGallery, expectRenderedImage, openAssetInforma
 test.beforeEach(async ({ page }) => { await signIn(page) })
 
 for (const [mode, selector] of [['resource-table', '#files-space-table'], ['resource-tiles', '#tiles-view']]) {
-  test(`Space opens the native gallery from ${mode}`, async ({ page }) => {
+  test(`Space keeps native file selection in ${mode}`, async ({ page }) => {
     const folder = new URL(page.url())
     folder.searchParams.set('view-mode', mode)
     await page.goto(folder.href)
@@ -16,7 +16,15 @@ for (const [mode, selector] of [['resource-table', '#files-space-table'], ['reso
     expect(index).toBeGreaterThanOrEqual(0)
     expect(index).toBeLessThan(order.length - 1)
     await selectFile(page, 'layered.psd')
+    const checkbox = page.locator('[data-test-selection-resource-name="layered.psd"] input')
+    await checkbox.focus()
     await page.keyboard.press('Space')
+    await expect(checkbox).not.toBeChecked()
+    await expect(page.locator('#preview')).toHaveCount(0)
+    await page.keyboard.press('Space')
+    await expect(checkbox).toBeChecked()
+    await expect(page.locator('#preview')).toHaveCount(0)
+    await openFile(page, 'layered.psd')
     await expectRenderedImage(page, 'layered.psd')
     await expect(page.locator('.preview-controls-action-count')).toContainText(`${index + 1} of ${order.length}`)
     await page.keyboard.press('ArrowRight')
@@ -24,7 +32,10 @@ for (const [mode, selector] of [['resource-table', '#files-space-table'], ['reso
     await expect(page.locator('.stage_media img')).toBeVisible()
     await page.keyboard.press('ArrowLeft')
     await expectRenderedImage(page, 'layered.psd')
+    await page.locator('#preview [tabindex="-1"]').focus()
     await page.keyboard.press('Space')
+    await expectNativeGallery(page, 'layered.psd')
+    await page.keyboard.press('Escape')
     await expect(page.locator('#preview')).toHaveCount(0)
     await expect(page.locator(selector)).toBeVisible()
   })
@@ -82,8 +93,7 @@ test('Details loads source facts on demand without original downloads', async ({
 })
 
 test('native video keeps its player while Details reports codecs', async ({ page }) => {
-  await selectFile(page, 'hevc.mp4')
-  await page.keyboard.press('Space')
+  await openFile(page, 'hevc.mp4')
   await expectNativeGallery(page, 'hevc.mp4')
   const video = page.locator('.stage_media video')
   await expect(video).toBeVisible()
@@ -95,9 +105,10 @@ test('native video keeps its player while Details reports codecs', async ({ page
   await expect(details).toContainText('160 × 96 px')
 })
 
-test('Space opens PDF first pages inside the same native gallery', async ({ page }) => {
-  await selectFile(page, 'native.pdf')
-  await page.keyboard.press('Space')
+test('native photo roll opens PDF first pages', async ({ page }) => {
+  await openFile(page, 'native.jpg')
+  await expectNativeGallery(page, 'native.jpg')
+  await page.locator('.photo-roll').getByRole('button', { name: 'native.pdf', exact: true }).click()
   await expectRenderedImage(page, 'native.pdf')
   const details = await openAssetInformation(page)
   await expect(details).toContainText('2,400 × 1,600 pt')
@@ -105,7 +116,7 @@ test('Space opens PDF first pages inside the same native gallery', async ({ page
 
 test('public folder navigation stays inside the native gallery share', async ({ browser, request }) => {
   const drive = await personalDrive(request)
-  const folderName = 'quick-look-share'
+  const folderName = 'gallery-share'
   const rootDav = drive.root.webDavUrl.replace(/\/$/, '')
   const dav = `${rootDav}/${folderName}`
   expect(new URL(dav).origin).toBe('https://localhost:9200')
@@ -119,7 +130,7 @@ test('public folder navigation stays inside the native gallery share', async ({ 
     })
     expect([201, 204]).toContain(upload.status())
   }
-  const password = 'Extra-Quick-Look-47!'
+  const password = 'Extra-Gallery-47!'
   const url = await protectedLink(request, drive, folderName, password)
   const anonymous = await browser.newContext({ ignoreHTTPSErrors: true })
   try {
@@ -128,7 +139,12 @@ test('public folder navigation stays inside the native gallery share', async ({ 
     await page.getByLabel('Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
     await selectFile(page, 'first.ai')
+    const checkbox = page.locator('[data-test-selection-resource-name="first.ai"] input')
+    await checkbox.focus()
     await page.keyboard.press('Space')
+    await expect(checkbox).not.toBeChecked()
+    await expect(page.locator('#preview')).toHaveCount(0)
+    await openFile(page, 'first.ai')
     await expectRenderedImage(page, 'first.ai')
     await expect(page.locator('.preview-controls-action-count')).toContainText('1 of 2')
     await page.keyboard.press('ArrowRight')

@@ -14,7 +14,7 @@ let legacyRoute
 let getEditorRouteOpts
 
 function setup() {
-  app = useExtraPreview(['image/jpeg', 'video/mp4'])
+  app = useExtraPreview()
   app.mounted({ instance: { onUnmount: (callback) => { cleanup = callback } } })
   return app.extensions.value
 }
@@ -36,8 +36,6 @@ beforeEach(() => {
   }))
   globalThis.__extraPreviewRouter = router
   globalThis.__extraFileActions = { getEditorRouteOpts }
-  globalThis.__extraResourcesStore = { currentFolder: { id: 'folder' }, activeResources: [], selectedResources: [] }
-  globalThis.__extraSpacesStore = { currentSpace: space }
 })
 
 afterEach(() => {
@@ -45,28 +43,58 @@ afterEach(() => {
   cleanup = undefined
   delete globalThis.__extraPreviewRouter
   delete globalThis.__extraFileActions
-  delete globalThis.__extraResourcesStore
-  delete globalThis.__extraSpacesStore
 })
 
 describe('native preview integration', () => {
-  it('opens an explicit Quick Look action in the native gallery', async () => {
+  it.each([
+    { name: 'personal folder', target: space },
+    { name: 'public folder', target: { id: 'public-token', driveType: 'public', driveAlias: 'public/public-token' } },
+    { name: 'authenticated share', target: { id: 'share-a', driveType: 'share', driveAlias: 'share/share-a' } }
+  ])('opens a fallback preview from a $name in the native gallery', async ({ target }) => {
     setup()
-    await action('extra-quick-look').handler({ space, resources: [file()] })
-    expect(router.push).toHaveBeenCalledWith(expect.objectContaining({ name: 'preview-media' }))
-    expect(action('extra-quick-look').category).toBe('secondary')
+    await action('extra-preview-fallback').handler({ space: target, resources: [file({ name: 'document.docx', extension: 'docx' })] })
+    expect(router.push).toHaveBeenCalledWith({
+      name: 'preview-media', params: { driveAliasAndItem: `${target.driveAlias}/document.docx` },
+      query: { fileId: 'file-a', ...(target.driveType === 'share' && { shareId: target.id }) }
+    })
   })
 
   it.each([
-    { name: 'native JPEG', resource: file({ extension: 'jpg', mimeType: 'image/jpeg' }), visible: true },
-    { name: 'rendered font', resource: file({ extension: 'otf' }), visible: true },
-    { name: 'rendered video frame', resource: file({ extension: 'mkv' }), visible: true },
-    { name: 'unknown file', resource: file({ extension: 'dat' }), visible: false },
-    { name: 'missing permission', resource: file({ canDownload: undefined }), visible: false },
-    { name: 'vault file', resource: file({ isInVault: true }), visible: false }
-  ])('shows Quick Look appropriately for a $name', ({ resource, visible }) => {
+    { name: 'Office document', changes: {}, visible: true },
+    { name: 'EPUB book', changes: { extension: 'epub' }, visible: true },
+    { name: 'native JPEG', changes: { extension: 'jpg', mimeType: 'image/jpeg' }, visible: false },
+    { name: 'native PDF', changes: { extension: 'pdf' }, visible: false },
+    { name: 'unknown file', changes: { extension: 'dat' }, visible: false },
+    { name: 'missing permission', changes: { canDownload: undefined }, visible: false },
+    { name: 'denied file', changes: { canDownload: () => false }, visible: false },
+    { name: 'broken permission context', changes: { canDownload: () => { throw new Error('not loaded') } }, visible: false },
+    { name: 'vault file', changes: { isInVault: true }, visible: false },
+    { name: 'folder', changes: { isFolder: true }, visible: false },
+    { name: 'folder type', changes: { type: 'folder' }, visible: false },
+    { name: 'project space', changes: { driveType: 'project' }, visible: false },
+    { name: 'deleted file', changes: { ddate: '2026-01-01' }, visible: false },
+    { name: 'processing file', changes: { processing: true }, visible: false },
+    { name: 'disabled file', changes: { disabled: true }, visible: false },
+    { name: 'missing identity', changes: { id: undefined }, visible: false }
+  ])('offers the fallback appropriately for a $name', async ({ changes, visible }) => {
     setup()
-    expect(action('extra-quick-look').isVisible({ space, resources: [resource] })).toBe(visible)
+    const options = { space, resources: [file({ extension: 'docx', ...changes })] }
+    const fallback = action('extra-preview-fallback')
+    expect(fallback.isVisible(options)).toBe(visible)
+    await fallback.handler(options)
+    expect(router.push).toHaveBeenCalledTimes(visible ? 1 : 0)
+  })
+
+  it.each([
+    { name: 'no selection', resources: [] },
+    { name: 'multiple selection', resources: [file({ extension: 'docx' }), file({ id: 'file-b', extension: 'docx' })] },
+    { name: 'missing space', resources: [file({ extension: 'docx' })], target: {} }
+  ])('does not open a fallback with $name', async ({ resources, target = space }) => {
+    setup()
+    const options = { space: target, resources }
+    expect(action('extra-preview-fallback').isVisible(options)).toBe(false)
+    await action('extra-preview-fallback').handler(options)
+    expect(router.push).not.toHaveBeenCalled()
   })
 
   it('keeps Office fallback behind native file handlers', () => {

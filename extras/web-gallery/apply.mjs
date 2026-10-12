@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-export const integrationFiles = ['index.ts', 'quicklook.js', 'AssetDetails.vue', 'formats.js', 'metadata.js']
+export const integrationFiles = ['index.ts', 'AssetDetails.vue', 'formats.js', 'metadata.js']
 
 function git(source, ...args) {
   return execFileSync('git', ['-C', source, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
