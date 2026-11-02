@@ -164,7 +164,7 @@ func (s DriveItemPermissionsService) Invite(ctx context.Context, resourceId *sto
 	var expiration *types.Timestamp
 	var cTime *types.Timestamp
 	if email := driveRecipient.GetEmail(); email != "" {
-		if !s.config.EnableGuestInvites {
+		if s.config.Commons == nil || !s.config.Commons.EnableGuestLinks {
 			return libregraph.Permission{}, errorcode.New(errorcode.NotSupported, "sharing with mail recipients is not enabled")
 		}
 		createShareRequest := createShareRequestToMail(email, statResponse.GetInfo(), cs3ResourcePermissions)
@@ -182,7 +182,8 @@ func (s DriveItemPermissionsService) Invite(ctx context.Context, resourceId *sto
 		cTime = createShareResponse.GetShare().GetCtime()
 		expiration = createShareResponse.GetShare().GetExpiration()
 
-		guestIdentity, err := cs3UserIdToIdentity(ctx, s.identityCache, createShareRequest.GetGrant().GetGrantee().GetUserId())
+		// the share provider stores the guest's mail address in its canonical form
+		guestIdentity, err := cs3UserIdToIdentity(ctx, s.identityCache, createShareResponse.GetShare().GetGrantee().GetUserId())
 		if err != nil {
 			s.logger.Debug().Err(err).Msg("failed to convert guest user id to identity")
 			return libregraph.Permission{}, err

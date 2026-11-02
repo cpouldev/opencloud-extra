@@ -17,6 +17,11 @@ modules from `extras/web-preview/src` into
 native component tests are included in the patch. Copying the modules preserves
 the declarations. The integration modules retain their own npm test suite.
 
+Web 8.2 loads media through `useMediaFileLoader` and uses `canOpen` for both file
+actions and gallery membership. The patch extends those native paths. Native
+media keeps neighbor preloading; extra conversions load only for the active file
+and discard aborted or outdated responses.
+
 From this repository root, with Node 24 and the pinned pnpm on `PATH`:
 
 ```sh

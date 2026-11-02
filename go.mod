@@ -9,6 +9,7 @@ require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/MicahParks/keyfunc/v2 v2.1.0
 	github.com/Nerzal/gocloak/v13 v13.9.0
+	github.com/alexedwards/argon2id v1.0.0
 	github.com/bbalet/stopwords v1.0.0
 	github.com/beevik/etree v1.8.0
 	github.com/blevesearch/bleve/v2 v2.6.1
@@ -35,10 +36,12 @@ require (
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/gofrs/flock v0.13.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tika v0.3.1
+	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
 	github.com/gookit/config/v2 v2.2.9
 	github.com/gorilla/mux v1.8.1
@@ -52,19 +55,20 @@ require (
 	github.com/leonelquinteros/gotext v1.7.3-0.20260422134830-b012b4ccae69
 	github.com/libregraph/idm v0.5.0
 	github.com/libregraph/lico v0.67.0
+	github.com/minio/minio-go/v7 v7.2.1
 	github.com/mna/pigeon v1.3.0
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
 	github.com/nats-io/nats-server/v2 v2.15.0
 	github.com/nats-io/nats.go v1.54.0
 	github.com/olekukonko/errors v1.3.0
-	github.com/olekukonko/tablewriter v1.1.4
+	github.com/olekukonko/tablewriter v1.1.5
 	github.com/onsi/ginkgo v1.16.5
-	github.com/onsi/ginkgo/v2 v2.32.1
+	github.com/onsi/ginkgo/v2 v2.33.0
 	github.com/onsi/gomega v1.43.1
-	github.com/open-policy-agent/opa v1.19.1
+	github.com/open-policy-agent/opa v1.21.1
 	github.com/opencloud-eu/icap-client v0.0.0-20250930132611-28a2afe62d89
-	github.com/opencloud-eu/libre-graph-api-go v1.0.8
-	github.com/opencloud-eu/reva/v2 v2.51.0
+	github.com/opencloud-eu/libre-graph-api-go v1.0.9-0.20261016073229-17ed3d5dd346
+	github.com/opencloud-eu/reva/v2 v2.52.1
 	github.com/opensearch-project/opensearch-go/v4 v4.7.3
 	github.com/orcaman/concurrent-map v1.0.0
 	github.com/pkg/errors v0.9.1
@@ -134,7 +138,6 @@ require (
 	github.com/RoaringBitmap/roaring/v2 v2.14.5 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/ajg/form v1.5.1 // indirect
-	github.com/alexedwards/argon2id v1.0.0 // indirect
 	github.com/amoghe/go-crypt v0.0.0-20220222110647-20eada5f5964 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
 	github.com/armon/go-radix v1.0.0 // indirect
@@ -222,20 +225,18 @@ require (
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/go-test/deep v1.1.0 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/gobwas/glob v1.0.0 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
-	github.com/gofrs/flock v0.13.1 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
-	github.com/google/renameio/v2 v2.0.2 // indirect
 	github.com/gookit/goutil v0.8.0 // indirect
 	github.com/gorilla/handlers v1.5.2 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
@@ -260,11 +261,11 @@ require (
 	github.com/kovidgoyal/go-shm v1.0.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
-	github.com/lestrrat-go/dsig v1.2.1 // indirect
+	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
-	github.com/lestrrat-go/httprc/v3 v3.0.5 // indirect
-	github.com/lestrrat-go/jwx/v3 v3.1.1 // indirect
+	github.com/lestrrat-go/httprc/v3 v3.0.6 // indirect
+	github.com/lestrrat-go/jwx/v3 v3.3.0 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/libregraph/oidc-go v1.1.0 // indirect
 	github.com/longsleep/go-metrics v1.0.0 // indirect
@@ -282,7 +283,6 @@ require (
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.2.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -356,7 +356,7 @@ require (
 	github.com/trustelem/zxcvbn v1.0.1 // indirect
 	github.com/urfave/cli/v2 v2.27.7 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
-	github.com/vektah/gqlparser/v2 v2.5.36 // indirect
+	github.com/vektah/gqlparser/v2 v2.5.37 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/wk8/go-ordered-map v1.0.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect

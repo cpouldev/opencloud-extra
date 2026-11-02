@@ -20,7 +20,6 @@ package usershareprovider
 
 import (
 	"context"
-	"net/mail"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -184,13 +183,15 @@ func (s *service) CreateShare(ctx context.Context, req *collaboration.CreateShar
 
 		if req.GetGrant().GetGrantee().GetUserId().GetType() == userpb.UserType_USER_TYPE_GUEST {
 			// guests are identified by their mail address, lets be strict here and only accept bare mail addresses
-			// and reject the "Mailbox"-Format that also contains a Display name
-			addr, err := mail.ParseAddress(req.GetGrant().GetGrantee().GetUserId().GetOpaqueId())
-			if err != nil || addr.Name != "" {
+			// and store them in their canonical form
+			guestID := req.GetGrant().GetGrantee().GetUserId()
+			canonical, err := utils.CanonicalMail(guestID.GetOpaqueId())
+			if err != nil {
 				return &collaboration.CreateShareResponse{
-					Status: status.NewInvalidArg(ctx, "invalid mail address for guest grantee"),
+					Status: status.NewInvalidArg(ctx, "invalid mail address for guest grantee: "+err.Error()),
 				}, nil
 			}
+			guestID.OpaqueId = canonical
 		}
 	}
 	gatewayClient, err := s.gatewaySelector.Next()
@@ -391,8 +392,15 @@ func (s *service) RemoveShare(ctx context.Context, req *collaboration.RemoveShar
 	user := ctxpkg.ContextMustGetUser(ctx)
 	share, err := s.sm.GetShare(ctx, req.Ref)
 	if err != nil {
+		var st *rpc.Status
+		switch err.(type) {
+		case errtypes.IsNotFound:
+			st = status.NewNotFound(ctx, err.Error())
+		default:
+			st = status.NewInternal(ctx, "error getting share")
+		}
 		return &collaboration.RemoveShareResponse{
-			Status: status.NewInternal(ctx, "error getting share"),
+			Status: st,
 		}, nil
 	}
 
@@ -451,6 +459,7 @@ func (s *service) RemoveShare(ctx context.Context, req *collaboration.RemoveShar
 	} else {
 		opaque = utils.AppendJSONToOpaque(opaque, "granteegroupid", share.GetGrantee().GetGroupId())
 	}
+	opaque = utils.AppendJSONToOpaque(opaque, "shareid", share.GetId())
 
 	return &collaboration.RemoveShareResponse{
 		Opaque: opaque,

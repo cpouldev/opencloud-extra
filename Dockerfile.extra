@@ -110,7 +110,7 @@ FROM build AS go-test
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    go test ./services/thumbnails/... ./services/graph/pkg/service/v0 ./services/webdav/pkg/service/v0 && \
+    go test ./services/thumbnails/... ./services/graph/pkg/service/v0 ./services/webdav/... && \
     go test -tags enable_vips ./services/thumbnails/...
 
 FROM runtime AS final

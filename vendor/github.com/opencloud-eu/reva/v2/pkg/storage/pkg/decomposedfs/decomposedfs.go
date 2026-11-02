@@ -42,6 +42,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 	"github.com/opencloud-eu/reva/v2/pkg/events"
@@ -51,6 +52,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/aspects"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/lookup"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/options"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/permissions"
@@ -144,6 +146,10 @@ func NewDefault(m map[string]interface{}, bs node.Blobstore, es events.Stream, l
 
 	o, err := options.New(m)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := prefixes.SetOcPrefix(o.MetadataPrefix); err != nil {
 		return nil, err
 	}
 
@@ -414,6 +420,11 @@ func (fs *Decomposedfs) handlePostprocessingEvent(ctx context.Context, event eve
 						OpaqueId:  session.SpaceID(),
 					},
 					Path: utils.MakeRelativePath(filepath.Join(session.Dir(), session.Filename())),
+				},
+				ResourceID: &provider.ResourceId{
+					StorageId: session.ProviderID(),
+					SpaceId:   session.SpaceID(),
+					OpaqueId:  session.NodeID(),
 				},
 				ParentID:          parentId,
 				Timestamp:         utils.TimeToTS(now),
@@ -877,7 +888,12 @@ func (fs *Decomposedfs) TouchFile(ctx context.Context, ref *provider.Reference, 
 		return errtypes.InternalError(err.Error())
 	}
 
-	rp, err := fs.p.AssemblePermissions(ctx, n)
+	// new file: check write permission on parent, not the not-yet-existing node
+	permNode := n
+	if !n.Exists {
+		permNode = parent
+	}
+	rp, err := fs.p.AssemblePermissions(ctx, permNode)
 	switch {
 	case err != nil:
 		return err
@@ -909,72 +925,92 @@ func (fs *Decomposedfs) CreateReference(ctx context.Context, p string, targetURI
 }
 
 // Move moves a resource from one reference to another
-func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Reference) (err error) {
+func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Reference) (*storage.MoveResult, error) {
 	ctx, span := tracer.Start(ctx, "Move")
 	defer span.End()
 	var oldNode, newNode *node.Node
+	var err error
 	if oldNode, err = fs.lu.NodeFromResource(ctx, oldRef); err != nil {
-		return
+		return nil, err
 	}
 
 	if !oldNode.Exists {
-		err = errtypes.NotFound(filepath.Join(oldNode.ParentID, oldNode.Name))
-		return
+		return nil, errtypes.NotFound(filepath.Join(oldNode.ParentID, oldNode.Name))
 	}
 
 	orp, err := fs.p.AssemblePermissions(ctx, oldNode)
 	switch {
 	case err != nil:
-		return err
+		return nil, err
 	case !orp.Move:
 		f, _ := storagespace.FormatReference(oldRef)
 		if orp.Stat {
-			return errtypes.PermissionDenied(f)
+			return nil, errtypes.PermissionDenied(f)
 		}
-		return errtypes.NotFound(f)
+		return nil, errtypes.NotFound(f)
+	}
+	parentAllowsMove := func(parentPerms *provider.ResourcePermissions) bool {
+		return parentPerms.GetMove()
+	}
+	if err := fs.checkParentPermission(ctx, oldNode, oldRef, parentAllowsMove); err != nil {
+		return nil, err
 	}
 
 	if newNode, err = fs.lu.NodeFromResource(ctx, newRef); err != nil {
-		return
+		return nil, err
 	}
 	if newNode.Exists {
-		err = errtypes.AlreadyExists(filepath.Join(newNode.ParentID, newNode.Name))
-		return
+		return nil, errtypes.AlreadyExists(filepath.Join(newNode.ParentID, newNode.Name))
 	}
 
 	nrp, err := fs.p.AssemblePermissions(ctx, newNode)
 	switch {
 	case err != nil:
-		return err
+		return nil, err
 	case oldNode.IsDir(ctx) && !nrp.CreateContainer:
 		f, _ := storagespace.FormatReference(newRef)
 		if nrp.Stat {
-			return errtypes.PermissionDenied(f)
+			return nil, errtypes.PermissionDenied(f)
 		}
-		return errtypes.NotFound(f)
+		return nil, errtypes.NotFound(f)
 	case !oldNode.IsDir(ctx) && !nrp.InitiateFileUpload:
 		f, _ := storagespace.FormatReference(newRef)
 		if nrp.Stat {
-			return errtypes.PermissionDenied(f)
+			return nil, errtypes.PermissionDenied(f)
 		}
-		return errtypes.NotFound(f)
+		return nil, errtypes.NotFound(f)
 	}
-
-	// Set space owner in context
-	storagespace.ContextSendSpaceOwnerID(ctx, newNode.SpaceOwnerOrManager(ctx))
 
 	// check lock on source
 	if err := oldNode.CheckLock(ctx); err != nil {
-		return err
+		return nil, err
+	}
+	if oldNode.IsProcessing(ctx) {
+		return nil, errtypes.ResourceProcessing(oldRef.String())
 	}
 
 	if err := fs.tp.Move(ctx, oldNode, newNode); err != nil {
-		return err
+		return nil, err
 	}
 
-	fs.publishEvent(ctx, fs.moveEvent(ctx, oldRef, newRef, oldNode, newNode, orp, nrp))
-
-	return nil
+	log := appctx.GetLogger(ctx)
+	newResolved := newRef
+	if nref, err := fs.refFromNode(ctx, newNode, newRef.GetResourceId().GetStorageId(), nrp); err == nil {
+		newResolved = nref
+	} else {
+		log.Error().Err(err).Msg("move: failed to resolve new reference")
+	}
+	oldResolved := oldRef
+	if oref, err := fs.refFromNode(ctx, oldNode, oldRef.GetResourceId().GetStorageId(), orp); err == nil {
+		oldResolved = oref
+	} else {
+		log.Error().Err(err).Msg("move: failed to resolve old reference")
+	}
+	return &storage.MoveResult{
+		SpaceOwner:   newNode.SpaceOwnerOrManager(ctx),
+		OldReference: oldResolved,
+		NewReference: newResolved,
+	}, nil
 }
 
 // GetMD returns the metadata for the specified resource
@@ -1192,12 +1228,21 @@ func (fs *Decomposedfs) Delete(ctx context.Context, ref *provider.Reference) (er
 		}
 		return errtypes.NotFound(f)
 	}
+	parentAllowsDelete := func(parentPerms *provider.ResourcePermissions) bool {
+		return parentPerms.GetDelete()
+	}
+	if err := fs.checkParentPermission(ctx, node, ref, parentAllowsDelete); err != nil {
+		return err
+	}
 
 	// Set space owner in context
 	storagespace.ContextSendSpaceOwnerID(ctx, node.SpaceOwnerOrManager(ctx))
 
 	if err := node.CheckLock(ctx); err != nil {
 		return err
+	}
+	if node.IsProcessing(ctx) {
+		return errtypes.ResourceProcessing(ref.String())
 	}
 
 	return fs.tp.Delete(ctx, node)
@@ -1534,6 +1579,28 @@ func (fs *Decomposedfs) EmptyRecycle(ctx context.Context, space *provider.Refere
 		return errtypes.NotFound(spaceID)
 	}
 	return fs.trashbin.EmptyRecycle(ctx, spaceID)
+}
+
+// checkParentPermission checks the permission to take n out of its parent, by
+// deleting or moving it. A grant on n itself, like a share, does not allow
+// that, the permission has to come from the parent or above.
+func (fs *Decomposedfs) checkParentPermission(ctx context.Context, n *node.Node, ref *provider.Reference, allowed func(*provider.ResourcePermissions) bool) error {
+	if n.IsSpaceRoot(ctx) {
+		return nil
+	}
+	parent, err := n.Parent(ctx)
+	if err != nil {
+		return err
+	}
+	pp, err := fs.p.AssemblePermissions(ctx, parent)
+	if err != nil {
+		return err
+	}
+	if !allowed(pp) {
+		f, _ := storagespace.FormatReference(ref)
+		return errtypes.PermissionDenied(f)
+	}
+	return nil
 }
 
 func (fs *Decomposedfs) getNodePath(ctx context.Context, n *node.Node, perms *provider.ResourcePermissions) (string, error) {

@@ -8,7 +8,8 @@ import (
 	libregraph "github.com/opencloud-eu/libre-graph-api-go"
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
 
-	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/thumbnail"
+	"github.com/opencloud-eu/opencloud/services/thumbnails/pkg/extra"
+	"github.com/opencloud-eu/opencloud/services/webdav/pkg/thumbnail"
 )
 
 const (
@@ -23,20 +24,21 @@ func (g Graph) setDriveItemsThumbnails(r *http.Request, items []libregraph.Drive
 	}
 	for i := range items {
 		if i < len(infos) {
-			setDriveItemThumbnails(&items[i], infos[i], g.config.Commons.OpenCloudURL)
+			setDriveItemThumbnails(&items[i], infos[i], g.config.Commons.OpenCloudURL, g.sourceTypes)
 		}
 	}
 }
 
-func setDriveItemThumbnails(item *libregraph.DriveItem, res *provider.ResourceInfo, baseURL string) {
-	if set := previewThumbnailSet(res, baseURL); set != nil {
+func setDriveItemThumbnails(item *libregraph.DriveItem, res *provider.ResourceInfo, baseURL string, sourceTypes thumbnail.SourceTypes) {
+	if set := previewThumbnailSet(res, baseURL, sourceTypes); set != nil {
 		item.SetThumbnails([]libregraph.ThumbnailSet{*set})
 	}
 }
 
 // previewThumbnailSet returns nil when the thumbnailer cannot render the resource.
-func previewThumbnailSet(res *provider.ResourceInfo, baseURL string) *libregraph.ThumbnailSet {
-	if !thumbnail.IsFileTypeSupported(res.GetMimeType(), res.GetName()) {
+func previewThumbnailSet(res *provider.ResourceInfo, baseURL string, sourceTypes thumbnail.SourceTypes) *libregraph.ThumbnailSet {
+	_, extraSupported := extra.Lookup(res.GetMimeType(), res.GetName())
+	if !extraSupported && !sourceTypes.Supports(res.GetMimeType()) {
 		return nil
 	}
 	return thumbnailSetFor(baseURL, storagespace.FormatResourceID(res.GetId()))
@@ -59,9 +61,13 @@ func previewThumbnail(base string, box int32) *libregraph.Thumbnail {
 
 // setShareThumbnails works off the driveItem, the share listings have no resource
 // info. The id comes separately, a received share carries it on its remote item.
-func setShareThumbnails(item *libregraph.DriveItem, itemID, baseURL string) {
+func setShareThumbnails(item *libregraph.DriveItem, itemID, baseURL string, sourceTypes thumbnail.SourceTypes) {
 	mimeType := item.GetFile().MimeType
-	if itemID == "" || mimeType == nil || !thumbnail.IsFileTypeSupported(*mimeType, item.GetName()) {
+	if itemID == "" || mimeType == nil {
+		return
+	}
+	_, extraSupported := extra.Lookup(*mimeType, item.GetName())
+	if !extraSupported && !sourceTypes.Supports(*mimeType) {
 		return
 	}
 	item.SetThumbnails([]libregraph.ThumbnailSet{*thumbnailSetFor(baseURL, itemID)})
