@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/opencloud-eu/web.git",
-  "version": "v8.2.1",
-  "commit": "6816e1d4e3eb9d376f639ad392e74e3c438c4bca",
-  "packageManager": "pnpm@11.28.8"
+  "version": "v8.2.2",
+  "commit": "ee3d8b09efe1ce5578d4f0651a76e42cab5020fe",
+  "packageManager": "pnpm@11.28.11"
 }
