@@ -49,7 +49,9 @@ test('native gallery navigation can leave a failed preview', async ({ page }) =>
   await expect(page.locator('.stage_media')).toContainText('Failed to load')
   await page.keyboard.press('ArrowRight')
   await expectNativeGallery(page, 'hevc.mp4')
-  await expect(page.locator('.stage_media video')).toBeVisible()
+  // Chromium may not decode HEVC; navigation must work past that file too.
+  await page.keyboard.press('ArrowRight')
+  await expectRenderedImage(page, 'layered.psd')
   await page.keyboard.press('Escape')
   await expect(page.locator('#preview')).toHaveCount(0)
   await expect(page.locator('[data-test-resource-name="artwork.ai"]').first()).toBeVisible()
@@ -93,15 +95,18 @@ test('Details loads source facts on demand without original downloads', async ({
 })
 
 test('native video keeps its player while Details reports codecs', async ({ page }) => {
-  await openFile(page, 'hevc.mp4')
-  await expectNativeGallery(page, 'hevc.mp4')
+  await openFile(page, 'playable.webm')
+  await expectNativeGallery(page, 'playable.webm')
   const video = page.locator('.stage_media video')
   await expect(video).toBeVisible()
+  await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThanOrEqual(2)
+  await expect(video).toHaveJSProperty('videoWidth', 160)
+  await expect(video).toHaveJSProperty('videoHeight', 96)
   await video.focus()
   await page.keyboard.press('Space')
   await expect(page.locator('#preview')).toBeVisible()
   const details = await openAssetInformation(page)
-  await expect(details).toContainText(/hevc/i)
+  await expect(details).toContainText(/vp9/i)
   await expect(details).toContainText('160 × 96 px')
 })
 

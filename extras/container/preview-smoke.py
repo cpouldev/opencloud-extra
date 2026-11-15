@@ -172,7 +172,14 @@ def seed_browser_files(root, dav):
         picture.save(root / "native.jpg")
     (root / "native.pdf").write_bytes((root / "artwork.ai").read_bytes())
     (root / "broken.ai").write_text("This is not a PDF-compatible Illustrator file.")
-    for name in ("native.jpg", "native.pdf", "broken.ai"):
+    # HEVC above exercises server thumbnails and metadata. Browser playback needs
+    # a codec available in Chromium on both release architectures.
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=2",
+        "-t", "1", "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+        "-threads", "1", "-pix_fmt", "yuv420p", "-an", str(root / "playable.webm"),
+    ], check=True, capture_output=True, timeout=30)
+    for name in ("native.jpg", "native.pdf", "broken.ai", "playable.webm"):
         code, body, _ = request(dav + "/" + name, "PUT", (root / name).read_bytes(),
                                 {"Content-Type": "application/octet-stream"})
         if code not in (201, 204):
